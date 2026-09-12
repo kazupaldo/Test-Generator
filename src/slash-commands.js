@@ -89,12 +89,6 @@ function buildCommand(name) {
       command
         .addStringOption((option) =>
           option
-            .setName('query')
-            .setDescription('Page number or username')
-            .setRequired(false),
-        )
-        .addStringOption((option) =>
-          option
             .setName('action')
             .setDescription('View history or export an account file')
             .setRequired(false)
@@ -126,7 +120,9 @@ function buildCommand(name) {
             .setDescription('Export file format')
             .setRequired(false)
             .addChoices(
-              { name: 'Text', value: 'txt' },
+              { name: 'user:pass', value: 'userpass' },
+              { name: 'user:pass:cookie', value: 'userpasscookie' },
+              { name: 'TXT', value: 'txt' },
               { name: 'CSV', value: 'csv' },
               { name: 'JSON', value: 'json' },
             ),
