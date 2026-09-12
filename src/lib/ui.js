@@ -20,41 +20,84 @@ import {
 // Embed shown for a generated account. `voice` (optional) comes from the Roblox
 // voice settings API: { enabled, verified } or null if the lookup failed.
 export function buildAccountEmbed(acc, voice) {
-  const embed = new EmbedBuilder()
-    .setTitle('✅ Account generated')
-    .setColor(COLORS.success)
-    .addFields(
-      { name: 'Username', value: '`' + acc.username + '`', inline: true },
-      { name: 'Password', value: '`' + acc.password + '`', inline: true },
-      { name: 'Type', value: String(acc.type), inline: true },
-    );
+  const valueOf = (...keys) => {
+    for (const key of keys) {
+      if (acc[key] !== undefined && acc[key] !== null && acc[key] !== '') return acc[key];
+    }
+    return null;
+  };
+  const show = (value, fallback = 'unknown') => {
+    if (value === undefined || value === null || value === '') return fallback;
+    return String(value)
+      .replaceAll('\r', ' ')
+      .replaceAll('\n', ' ')
+      .replaceAll('`', 'ˋ')
+      .slice(0, 900);
+  };
+  const inline = (value, fallback = 'unknown') => `\`${show(value, fallback)}\``;
+  const showBoolean = (value) => {
+    if (value === undefined || value === null || value === '') return 'unknown';
+    return value === true || value === 'true' ? 'Yes' : 'No';
+  };
+  const formatDate = (value) => {
+    if (!value) return 'unknown';
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) return show(value);
+    return new Date(timestamp).toISOString().slice(0, 10);
+  };
+  const formatInventory = (value) => {
+    if (!Array.isArray(value)) return show(value);
+    if (!value.length) return '0';
+    return value
+      .map((item) => typeof item === 'object' ? item.name ?? item.Name ?? 'item' : item)
+      .join(', ')
+      .replaceAll('`', 'ˋ')
+      .slice(0, 850);
+  };
 
-  if (acc.id != null) embed.addFields({ name: 'User ID', value: String(acc.id), inline: true });
-  if (acc.region) embed.addFields({ name: 'Region', value: acc.region, inline: true });
-  if (acc.cost != null) embed.addFields({ name: 'Cost', value: `$${acc.cost}`, inline: true });
-  if (acc.robux != null) embed.addFields({ name: 'Robux', value: String(acc.robux), inline: true });
-  if (acc.rap != null) embed.addFields({ name: 'RAP', value: String(acc.rap), inline: true });
-  if (acc.summary != null) embed.addFields({ name: 'Summary', value: String(acc.summary), inline: true });
-  if (acc.email_verified != null) {
-    embed.addFields({ name: 'Email verified', value: acc.email_verified ? 'Yes' : 'No', inline: true });
-  }
-  if (acc.age_verified != null) {
-    embed.addFields({ name: 'Age verified', value: acc.age_verified ? 'Yes' : 'No', inline: true });
-  }
-  if (acc.estimated_age != null) {
-    embed.addFields({ name: 'Estimated age', value: String(acc.estimated_age), inline: true });
-  }
-  if (acc.estimated_age_group) {
-    embed.addFields({ name: 'Age group', value: String(acc.estimated_age_group), inline: true });
-  }
-  if (acc.avatarUrl) embed.setThumbnail(acc.avatarUrl);
+  const userId = valueOf('id', 'userId', 'userid');
+  const displayName = valueOf('displayName', 'display_name') ?? acc.username;
+  const createdAt = valueOf('accountCreatedAt', 'account_created_at', 'createdAt', 'created_at');
+  const banned = valueOf('banned', 'banned_status', 'isBanned');
+  const friends = valueOf('friendsCount', 'friends_count', 'friends');
+  const followers = valueOf('followersCount', 'followers_count', 'followers');
+  const inventory = valueOf('inventoryItems', 'inventory_items', 'inventory');
+  const age = valueOf('estimated_age', 'estimatedAge');
+  const ageGroup = valueOf('estimated_age_group', 'estimatedAgeGroup');
+  const descriptionLines = [
+    `**Username:** ${inline(acc.username)}`,
+    `**Password:** ${inline(acc.password)}`,
+    `**User identifier:** ${inline(userId)}`,
+    `**Display name:** ${inline(displayName)}`,
+    `**Account creation date:** ${formatDate(createdAt)}`,
+    `**Region:** ${show(acc.region, 'not available')}`,
+    `**Email verified:** ${showBoolean(acc.email_verified)}`,
+    `**Age verified:** ${showBoolean(acc.age_verified)}`,
+    `**Estimated age:** ${age == null ? 'unknown' : `${show(age)}${ageGroup ? ` (${show(ageGroup)})` : ''}`}`,
+    `**Banned status:** ${showBoolean(banned)}`,
+    `**Friends count:** ${show(friends, 'unknown')}`,
+    `**Followers count:** ${show(followers, 'unknown')}`,
+    `**Inventory items${Array.isArray(inventory) ? ` (${inventory.length})` : ''}:** ${formatInventory(inventory)}`,
+  ];
+
+  if (acc.cost != null) descriptionLines.push(`**Cost:** ${show(`$${acc.cost}`)}`);
+  if (acc.robux != null) descriptionLines.push(`**Robux:** ${show(acc.robux)}`);
+  if (acc.rap != null) descriptionLines.push(`**RAP:** ${show(acc.rap)}`);
+  if (acc.summary != null) descriptionLines.push(`**Summary:** ${show(acc.summary)}`);
   if (voice) {
-    embed.addFields({
-      name: '🎙️ Voice chat',
-      value: `${voice.enabled ? '🟢 Enabled' : '🔴 Disabled'}${voice.verified ? ' · verified' : ''}`,
-      inline: true,
-    });
+    descriptionLines.push(
+      `**Voice chat:** ${voice.enabled ? 'Enabled' : 'Disabled'}${voice.verified ? ' · verified' : ''}`,
+    );
   }
+
+  const embed = new EmbedBuilder()
+    .setAuthor({ name: 'Kazu' })
+    .setTitle(`New ${acc.type || 'Roblox'} account`)
+    .setColor(COLORS.success)
+    .setDescription(descriptionLines.join('\n').slice(0, 4090))
+    .setFooter({ text: 'Contact - Generator' })
+    .setTimestamp();
+  if (acc.avatarUrl) embed.setThumbnail(acc.avatarUrl);
   if (acc.cookie) {
     const cookie = String(acc.cookie);
     const cookieValue = `\`\`\`\n${cookie}\n\`\`\``;
