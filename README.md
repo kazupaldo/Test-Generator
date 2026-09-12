@@ -19,13 +19,12 @@ You can use prefix commands like `+generate alt` or native Discord slash command
 | `+balance` | Shows how much money is left on the BloxGen account |
 | `+history [page]` | Lists your generated accounts (Prev/Next buttons to page) |
 | `+history <username>` | DMs that account's full login (same embed as a generation) |
-| `+history dump` | DMs **all** accounts as a `user:pass:cookie` .txt file |
+| `+history export [type] [page] [format]` | DMs filtered history as `txt`, `csv`, or `json` |
 | `+followers <id>` | Checks how many followers can be added to a Roblox account |
 | `+stock` | Live-checks which account types are currently in stock |
 | `+prices` | Shows the price of each account type |
 | `+limits` | Shows your daily generation limits |
 | `+status` | Shows API & Social Growth health and your balance |
-| `+key` | Securely manage your personal BloxGen API key |
 | `+settings` | Choose DMs, a channel, or both destinations (admins only) |
 | `+logs` | Set/clear the channel where generations are logged (admins only) |
 | `+autogen` | Open the admin-only 24-hour auto-generation panel |
@@ -37,22 +36,13 @@ You can use prefix commands like `+generate alt` or native Discord slash command
 
 The primary commands are also registered as native Discord slash commands:
 `/generate`, `/panel`, `/balance`, `/followers`, `/stock`, `/prices`,
-`/limits`, `/status`, `/settings`, `/logs`, `/history`, `/help`, `/autogen`,
-and `/key`.
+`/limits`, `/status`, `/settings`, `/logs`, `/history`, `/help`, and `/autogen`.
 They are registered for each server when the bot starts or joins it. Prefix
 commands remain available for compatibility.
 
 `+stock` and `/stock` call the BloxGen stock endpoint when used. The response
-also includes a **Refresh live stock** button. Auto-generation performs another
-stock check before every generation attempt.
-
-### Personal API keys
-
-Users can run `/key` to open a private key manager. The bot validates the key
-with BloxGen, encrypts it at rest using `SESSION_SECRET`, and uses that key for
-the user's balance, stock, pricing, limits, follower, and generation commands.
-Keys are never displayed or written to logs. The bot owner key remains the
-fallback for users who have not added a personal key.
+also includes a **Refresh live stock** button. Every generation performs a
+fresh stock and daily-limit check before the paid API request.
 
 > 💡 By default, generated accounts are sent to you **privately** so nobody else sees the passwords. An admin can use `+settings both #channel` or `/settings mode:both channel:#channel` to deliver every account to both destinations.
 
@@ -79,15 +69,19 @@ You can also set a default `LOG_CHANNEL_ID` in `.env`, but the `+logs` command t
 
 Server admins can type `+autogen` to open the control panel. Select one or more
 account categories, then press **Enable** to generate one account immediately
-and continue every 5 seconds for up to 24 hours. The bot checks BloxGen stock
-before each attempt, skips unavailable categories, rotates through the
-categories that are in stock, and stops automatically after 24 hours. The
-`dump` category is included and its extra metadata (Robux, RAP, summary, and
-verification details when provided) is shown in the result.
+and continue every 5 seconds for up to 24 hours. Smart generation refreshes
+BloxGen stock and daily limits before every attempt, skips an unavailable or
+limited type, and rotates through the types that are both stocked and eligible.
+If all selected stock is gone, generation pauses while the panel keeps checking
+for restock; it resumes automatically when an eligible type returns. The panel
+shows generated, skipped, and attempted counts plus the most recent checks.
+The `dump` category is included and its extra metadata (Robux, RAP, summary,
+and verification details when provided) is shown in the result.
 
-BloxGen can enforce cooldowns and separate daily limits by account type. When
-the API reports a cooldown, the bot waits for it instead of repeatedly
-submitting requests.
+BloxGen can enforce cooldowns and separate daily limits by account type. The
+bot normalizes the API's limit response and uses the same normalized values in
+`+limits`, manual generation, and auto-generation. When the API reports a
+cooldown, the bot waits for it instead of repeatedly submitting requests.
 
 Press **Disable** at any time to stop it immediately. Auto-generated accounts
 follow the server's current DM, channel, or DM + channel delivery setting.
@@ -139,12 +133,12 @@ The bot needs a free program called **Node.js** to run.
 2. Make a copy of it and rename the copy to **`.env`** (just `.env`, nothing before the dot).
 3. Open `.env` with Notepad and fill in:
    ```
-   DISCORD_TOKEN=paste-your-discord-token-here
+   DISCORD_TOKEN=paste-the-token-for-your-new-test-bot-here
    BLOXGEN_API_KEY=BLOX-your-key-here
-    SESSION_SECRET=use-a-long-random-secret-here
    ```
-   `SESSION_SECRET` encrypts personal user API keys. Do not change or lose it
-   after users have saved keys, or those keys cannot be decrypted.
+   If this is a different test bot, create or reset that bot's token and
+   invite that same application to the test server. Do not reuse a token from
+   another bot or paste a token into Discord messages.
 4. *(Optional — only for `+history`)* The official API has no history endpoint, so
    `+history` uses your dashboard session cookie. On <https://bloxgen.net> (logged in),
    press **F12 → Application → Cookies → https://bloxgen.net**, copy the value of the
@@ -196,12 +190,26 @@ private/admin-only channel.
 
 ---
 
+## 📦 History exports
+
+Prefix examples:
+
+- `+history export` → export all accounts as a text file
+- `+history export +30 days old 2 csv` → export one type from page 2 as CSV
+- `+history export --type=dump --format=json` → export one type as JSON
+
+`/history action:Export` exposes separate type, page, and format options. The
+export uses the dashboard session cookie, so keep the resulting file private.
+
+---
+
 ## ❓ Troubleshooting
 
 | Problem | Fix |
 | --- | --- |
 | Bot doesn't respond to commands | Make sure **MESSAGE CONTENT INTENT** is ON (Step 3.5) and the bot is online. |
-| "Could not DM you" | Allow DMs from server members (Server settings → Privacy), or use `+settings server`. |
+| "Could not DM you" | Allow DMs from server members (Server settings → Privacy), or use `+settings server`. The bot checks the destination before it requests a paid account. |
+| Account generated but not posted | Give the bot **Send Messages**, **Embed Links**, and **Attach Files** in the selected channel. Long cookies are sent as a private account file instead of an oversized embed field. |
 | "API key is required" / "Invalid API key" | Double-check `BLOXGEN_API_KEY` in your `.env`. |
 | "You must accept the rules before generating" | Accept the rules once in the BloxGen dashboard. |
 | "Insufficient balance" | Top up your BloxGen balance. |
@@ -214,6 +222,8 @@ private/admin-only channel.
 - The BloxGen API key belongs to **you (the bot owner)** — everyone using the bot spends from **your** balance.
 - Never share your `.env` file, your Discord token, or your API key.
 - Keep the bot in a server/channel you trust.
+- Store `DISCORD_TOKEN`, `BLOXGEN_API_KEY`, and `BLOXGEN_SESSION_COOKIE` only in
+  `.env` or your host's secret manager.
 
 ---
 

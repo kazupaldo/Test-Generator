@@ -1,7 +1,7 @@
 {
   "name": "@workspace/bloxgen-discord-bot",
-  "version": "1.0.0",
-  "description": "Simple Discord bot for the BloxGen API",
+  "version": "1.1.0",
+  "description": "Smart Discord account generator for the BloxGen API",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
