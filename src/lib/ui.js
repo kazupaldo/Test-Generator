@@ -138,6 +138,7 @@ export function buildAutoGenerationPanel(guildId) {
     .addFields({
       name: 'Selected categories',
       value: status.types.map((type) => `\`${type}\``).join(' · '),
+      inline: true,
     });
 
   if (status.enabled) {
@@ -145,6 +146,11 @@ export function buildAutoGenerationPanel(guildId) {
       {
         name: '📊 Run totals',
         value: `Generated: **${status.generatedCount}**\nSkipped/checks: **${status.skippedCount}**\nAttempts: **${status.attemptCount}**`,
+        inline: true,
+      },
+      {
+        name: '🔄 Automatic checks',
+        value: `Stock: **${status.stockAvailableCount ?? '?'}/${status.selectedTypeCount}** selected in stock\nDaily remaining: **${status.remainingGenerations ?? 'unknown'}**\nLast refresh: ${status.lastStockCheckAt ? `<t:${Math.floor(status.lastStockCheckAt / 1000)}:R>` : '—'}`,
         inline: true,
       },
       {

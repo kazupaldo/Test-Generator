@@ -11,6 +11,7 @@ import { logDirectMessageError } from './delivery.js';
 
 export const AUTO_GENERATION_INTERVAL_MS = 5 * 1000;
 export const AUTO_GENERATION_DURATION_MS = 24 * 60 * 60 * 1000;
+export const AUTO_PANEL_REFRESH_INTERVAL_MS = 15 * 1000;
 export const AUTO_GENERATION_TYPES = [...ACCOUNT_TYPES];
 const DEFAULT_AUTO_GENERATION_TYPES = [...AUTO_GENERATION_TYPES];
 
@@ -24,6 +25,10 @@ function isInStock(value) {
 function normalizeTypes(types) {
   const unique = [...new Set(types)].filter((type) => AUTO_GENERATION_TYPES.includes(type));
   return unique.length ? unique : DEFAULT_AUTO_GENERATION_TYPES;
+}
+
+function countStockedTypes(types, stock) {
+  return types.filter((type) => isInStock(stock?.[type])).length;
 }
 
 export function getAutoGenerationTypes(guildId) {
@@ -52,6 +57,9 @@ export function getAutoGenerationStatus(guildId) {
       lastGeneratedAt: null,
       lastStockCheckAt: null,
       lastLimitCheckAt: null,
+      selectedTypeCount: getAutoGenerationTypes(guildId).length,
+      stockAvailableCount: null,
+      remainingGenerations: null,
     };
   }
 
@@ -68,6 +76,9 @@ export function getAutoGenerationStatus(guildId) {
     lastGeneratedAt: run.lastGeneratedAt,
     lastStockCheckAt: run.lastStockCheckAt,
     lastLimitCheckAt: run.lastLimitCheckAt,
+    selectedTypeCount: run.types.length,
+    stockAvailableCount: run.stock ? countStockedTypes(run.types, run.stock) : null,
+    remainingGenerations: run.limits?.remainingGenerations ?? null,
   };
 }
 
@@ -85,8 +96,10 @@ async function deliverGeneratedAccount(client, run, payload, user) {
   });
 }
 
-function refreshPanel(run) {
+function refreshPanel(run, force = false) {
   if (!run.refresh || run.refreshing) return;
+  if (!force && Date.now() - run.lastPanelRefreshAt < AUTO_PANEL_REFRESH_INTERVAL_MS) return;
+  run.lastPanelRefreshAt = Date.now();
   run.refreshing = true;
   Promise.resolve(run.refresh())
     .catch((err) => console.error('Failed to refresh the auto-generation panel:', err.message))
@@ -105,8 +118,11 @@ async function generateNext(client, run) {
     // Both checks happen immediately before every paid generation. A type at
     // its limit is skipped and the next stocked type is tried instead.
     const [stock, limits] = await Promise.all([getStock(), getDailyLimit()]);
+    run.stock = stock;
+    run.limits = limits;
     run.lastStockCheckAt = Date.now();
-    run.lastLimitCheckAt = Date.now();
+    run.lastLimitCheckAt = run.lastStockCheckAt;
+    refreshPanel(run);
 
     const stockedTypes = run.types.filter((type) => isInStock(stock?.[type]));
     const availableTypes = stockedTypes.filter((type) => canGenerateType(limits, type));
@@ -115,7 +131,7 @@ async function generateNext(client, run) {
       run.pausedReason = 'No selected account types are in stock. Checking again automatically for restock.';
       run.skippedCount++;
       console.log(`Auto-generation paused for guild ${run.guildId}: no selected types in stock.`);
-      refreshPanel(run);
+      refreshPanel(run, true);
       return;
     }
 
@@ -123,7 +139,7 @@ async function generateNext(client, run) {
       run.pausedReason = 'All stocked selected types are at their daily limit. Checking again for the next reset.';
       run.skippedCount++;
       console.log(`Auto-generation paused for guild ${run.guildId}: selected types reached their daily limit.`);
-      refreshPanel(run);
+      refreshPanel(run, true);
       return;
     }
 
@@ -152,7 +168,7 @@ async function generateNext(client, run) {
     run.lastGeneratedAt = Date.now();
     run.lastError = null;
     console.log(`Auto-generated ${type} for guild ${run.guildId}.`);
-    refreshPanel(run);
+    refreshPanel(run, true);
   } catch (err) {
     if (err.deliveryResult?.channelError) {
       await disableAutoGeneration(run.guildId, { refresh: true });
@@ -182,7 +198,7 @@ async function generateNext(client, run) {
       : err.message;
     run.skippedCount++;
     console.error(`Auto-generation failed for guild ${run.guildId}:`, err.message);
-    refreshPanel(run);
+    refreshPanel(run, true);
   } finally {
     run.generating = false;
   }
@@ -193,6 +209,7 @@ export async function disableAutoGeneration(guildId, { refresh = false } = {}) {
   if (!run) return false;
 
   clearInterval(run.interval);
+  clearInterval(run.panelInterval);
   clearTimeout(run.timeout);
   activeRuns.delete(guildId);
 
@@ -234,7 +251,11 @@ export function enableAutoGeneration(client, {
     lastError: null,
     pausedReason: null,
     refreshing: false,
+    lastPanelRefreshAt: 0,
+    stock: null,
+    limits: null,
     interval: null,
+    panelInterval: null,
     timeout: null,
     refresh: null,
   };
@@ -242,6 +263,7 @@ export function enableAutoGeneration(client, {
   run.interval = setInterval(() => {
     void generateNext(client, run);
   }, run.intervalMs);
+  run.panelInterval = setInterval(() => refreshPanel(run, true), AUTO_PANEL_REFRESH_INTERVAL_MS);
 
   run.timeout = setTimeout(() => {
     void disableAutoGeneration(guildId, { refresh: true });
