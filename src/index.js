@@ -1,61 +1,36 @@
-// Simple Discord bot for the BloxGen API — entry point.
-import { Client, GatewayIntentBits } from 'discord.js';
-import { DISCORD_TOKEN, BLOXGEN_API_KEY, PREFIX } from './config.js';
-import * as messageCreate from './events/messageCreate.js';
-import * as interactionCreate from './events/interactionCreate.js';
-import { registerSlashCommands } from './slash-commands.js';
+// Command registry: maps command names and aliases to their module.
+import generate from './generate.js';
+import panel from './panel.js';
+import balance from './balance.js';
+import followers from './followers.js';
+import stock from './stock.js';
+import prices from './prices.js';
+import limits from './limits.js';
+import status from './status.js';
+import settings from './settings.js';
+import logs from './logs.js';
+import history from './history.js';
+import help from './help.js';
+import autogen from './autogen.js';
 
-if (!DISCORD_TOKEN || !BLOXGEN_API_KEY) {
-  console.error('Missing env vars. Copy .env.example to .env and fill DISCORD_TOKEN and BLOXGEN_API_KEY.');
-  process.exit(1);
-}
+export const commandList = [
+  generate,
+  panel,
+  balance,
+  followers,
+  stock,
+  prices,
+  limits,
+  status,
+  settings,
+  logs,
+  history,
+  help,
+  autogen,
+];
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // privileged: enable in the Developer Portal
-    GatewayIntentBits.DirectMessages,
-  ],
-});
-
-client.once('clientReady', async (c) => {
-  console.log(`Logged in as ${c.user.tag} — prefix "${PREFIX}"`);
-  for (const guild of c.guilds.cache.values()) {
-    try {
-      await registerSlashCommands(c, guild);
-    } catch (err) {
-      console.error(`Failed to register slash commands in ${guild.name}:`, err.message);
-    }
-  }
-});
-
-client.on('guildCreate', async (guild) => {
-  try {
-    await registerSlashCommands(client, guild);
-  } catch (err) {
-    console.error(`Failed to register slash commands in ${guild.name}:`, err.message);
-  }
-});
-
-// Wire up event modules.
-for (const event of [messageCreate, interactionCreate]) {
-  client.on(event.name, (...args) => event.execute(...args, client));
-}
-
-// Connection-level errors (don't crash, just log).
-client.on('error', (err) => console.error('Client error:', err));
-client.on('shardError', (err) => console.error('Shard error:', err));
-
-// Global safety net: log unexpected errors instead of crashing the process.
-process.on('unhandledRejection', (reason) => console.error('Unhandled rejection:', reason));
-process.on('uncaughtException', (err) => console.error('Uncaught exception:', err));
-
-try {
-  await client.login(DISCORD_TOKEN);
-} catch (err) {
-  console.error('Failed to log in. Check your DISCORD_TOKEN in .env.');
-  console.error(err.message);
-  await client.destroy().catch(() => {});
-  process.exitCode = 1;
+export const commands = new Map();
+for (const command of commandList) {
+  commands.set(command.name, command);
+  for (const alias of command.aliases ?? []) commands.set(alias, command);
 }
