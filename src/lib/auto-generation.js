@@ -128,22 +128,25 @@ async function generateNext(client, run) {
     const availableTypes = stockedTypes.filter((type) => canGenerateType(limits, type));
 
     if (!stockedTypes.length) {
-      run.pausedReason = 'No selected account types are in stock. Checking again automatically for restock.';
+      run.pausedReason = null;
+      run.waitingReason = 'No selected account types are in stock.';
       run.skippedCount++;
-      console.log(`Auto-generation paused for guild ${run.guildId}: no selected types in stock.`);
+      console.log(`Auto-generation is waiting for stock in guild ${run.guildId}; it will retry on the next 5-second cycle.`);
       refreshPanel(run, true);
       return;
     }
 
     if (!availableTypes.length) {
-      run.pausedReason = 'All stocked selected types are at their daily limit. Checking again for the next reset.';
+      run.pausedReason = null;
+      run.waitingReason = 'All stocked selected types are at their daily limit.';
       run.skippedCount++;
-      console.log(`Auto-generation paused for guild ${run.guildId}: selected types reached their daily limit.`);
+      console.log(`Auto-generation is waiting for a daily-limit reset in guild ${run.guildId}; it will retry on the next 5-second cycle.`);
       refreshPanel(run, true);
       return;
     }
 
     run.pausedReason = null;
+    run.waitingReason = null;
     const type = availableTypes[run.nextTypeIndex % availableTypes.length];
     run.nextTypeIndex++;
     const user = await client.users.fetch(run.userId);
@@ -193,9 +196,11 @@ async function generateNext(client, run) {
       run.cooldownUntil = Date.now() + seconds * 1000;
     }
 
-    run.pausedReason = err.isDailyLimit
-      ? `BloxGen rejected \`${err.accountType || run.lastType || 'the selected type'}\` because its daily limit was reached.`
+    run.pausedReason = null;
+    run.waitingReason = err.isDailyLimit
+      ? `\`${err.accountType || run.lastType || 'the selected type'}\` is at its daily limit.`
       : err.message;
+    run.lastError = err.message;
     run.skippedCount++;
     console.error(`Auto-generation failed for guild ${run.guildId}:`, err.message);
     refreshPanel(run, true);
@@ -250,6 +255,7 @@ export function enableAutoGeneration(client, {
     lastLimitCheckAt: null,
     lastError: null,
     pausedReason: null,
+    waitingReason: null,
     refreshing: false,
     lastPanelRefreshAt: 0,
     stock: null,
