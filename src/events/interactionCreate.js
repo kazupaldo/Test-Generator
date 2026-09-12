@@ -1,5 +1,5 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { ACCOUNT_TYPES, getBalance, getStock } from '../bloxgen.js';
+import { ACCOUNT_TYPES, getStock } from '../bloxgen.js';
 import { generateAccount } from '../lib/generation.js';
 import {
   disableAutoGeneration,
@@ -11,16 +11,9 @@ import {
 import { buildAutoGenerationPanel } from '../lib/ui.js';
 import { buildHistoryPage } from '../commands/history.js';
 import { commands } from '../commands/index.js';
-import { buildApiKeyModal, buildApiKeyPanel } from '../commands/key.js';
 import { buildStockReply } from '../commands/stock.js';
 import { describeDirectMessageError } from '../lib/delivery.js';
 import { deliverAccount } from '../lib/account-delivery.js';
-import {
-  getUserApiKey,
-  hasPersonalApiKey,
-  removeUserApiKey,
-  setUserApiKey,
-} from '../lib/api-keys.js';
 
 // Generate from a button/menu interaction. The account is sent to DMs (or the
 // channel) so it persists; the interaction reply is just an ephemeral receipt.
@@ -36,7 +29,7 @@ async function handleGenerateInteraction(interaction, type) {
       type,
       user: interaction.user,
       guildId: interaction.guildId,
-      apiKey: getUserApiKey(interaction.user.id),
+      fallbackChannel: interaction.channel,
     });
 
     try {
@@ -133,25 +126,25 @@ async function handleChatInputCommand(interaction, client) {
       break;
     }
     case 'history': {
+      const action = options.getString('action');
       const query = options.getString('query');
-      if (query) args = [query];
+      if (action === 'export') {
+        args = [
+          'export',
+          options.getString('type') || 'all',
+          ...(options.getInteger('page') ? [String(options.getInteger('page'))] : []),
+          options.getString('format') || 'txt',
+        ];
+      } else if (query) {
+        args = [query];
+      }
       break;
     }
   }
 
-  if (interaction.commandName === 'key') {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  } else {
-    await interaction.deferReply();
-  }
+  await interaction.deferReply();
   try {
-    const reply = await command.execute({
-      message,
-      args,
-      client,
-      interaction,
-      apiKey: getUserApiKey(interaction.user.id),
-    });
+    const reply = await command.execute({ message, args, client, interaction });
     if (reply) {
       await interaction.editReply(reply);
     } else {
@@ -167,44 +160,8 @@ async function handleChatInputCommand(interaction, client) {
 
 export async function execute(interaction) {
   try {
-    if (interaction.isModalSubmit() && interaction.customId === 'api-key-submit') {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const apiKey = interaction.fields.getTextInputValue('api-key-value')?.trim();
-      if (!apiKey || apiKey.length < 8 || apiKey.length > 256 || /\s/.test(apiKey)) {
-        await interaction.editReply('❌ That does not look like a valid API key format.');
-        return;
-      }
-
-      try {
-        const balance = await getBalance(apiKey);
-        setUserApiKey(interaction.user.id, apiKey);
-        await interaction.editReply(
-          `✅ Personal API key saved and validated. Current balance: **$${balance.balance}**.\n` +
-          'Future commands and auto-generation started by you will use this key.',
-        );
-      } catch (err) {
-        console.error(`Personal API key validation failed for user ${interaction.user.id}:`, err.message);
-        await interaction.editReply('❌ BloxGen rejected that key or is temporarily unavailable. The key was not saved.');
-      }
-    } else if (interaction.isChatInputCommand()) {
+    if (interaction.isChatInputCommand()) {
       await handleChatInputCommand(interaction, interaction.client);
-    } else if (interaction.isButton() && interaction.customId === 'api-key-add') {
-      await interaction.showModal(buildApiKeyModal());
-    } else if (interaction.isButton() && interaction.customId === 'api-key-status') {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      await interaction.editReply(
-        hasPersonalApiKey(interaction.user.id)
-          ? '✅ You have a validated personal API key. Your commands use it instead of the bot default.'
-          : 'ℹ️ You are using the bot default API key. Use **Add or replace key** to use your own.',
-      );
-    } else if (interaction.isButton() && interaction.customId === 'api-key-remove') {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const removed = removeUserApiKey(interaction.user.id);
-      await interaction.editReply(
-        removed
-          ? '✅ Your personal API key was removed. Commands now use the bot default key.'
-          : 'ℹ️ You did not have a personal API key saved.',
-      );
     } else if (interaction.isStringSelectMenu() && interaction.customId === 'autogen-types') {
       if (!interaction.guild || !interaction.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
         await interaction.reply({ content: '❌ You need the **Manage Server** permission.', flags: MessageFlags.Ephemeral });
@@ -218,7 +175,7 @@ export async function execute(interaction) {
     } else if (interaction.isButton() && interaction.customId === 'stock-refresh') {
       await interaction.deferUpdate();
       try {
-        const data = await getStock(getUserApiKey(interaction.user.id));
+        const data = await getStock();
         await interaction.editReply(buildStockReply(data));
       } catch (err) {
         console.error('Live stock refresh failed:', err);

@@ -1,6 +1,5 @@
 import { PREFIX } from '../config.js';
 import { commands } from '../commands/index.js';
-import { getUserApiKey } from '../lib/api-keys.js';
 
 // Reply without ever throwing (e.g. missing permissions, deleted message).
 async function safeReply(message, content) {
@@ -23,12 +22,7 @@ export async function execute(message, client) {
     if (!command) return;
 
     try {
-      const reply = await command.execute({
-        message,
-        args,
-        client,
-        apiKey: getUserApiKey(message.author.id),
-      });
+      const reply = await command.execute({ message, args, client });
       if (reply) await safeReply(message, reply);
     } catch (err) {
       console.error(`${PREFIX}${name} failed:`, err);
