@@ -16,7 +16,6 @@ const descriptions = {
   history: 'View or export your generated account history',
   help: 'Show the command guide',
   autogen: 'Open the 24-hour auto-generation panel',
-  key: 'Securely manage your personal BloxGen API key',
 };
 
 function base(name) {
@@ -87,15 +86,53 @@ function buildCommand(name) {
         );
       break;
     case 'history':
-      command.addStringOption((option) =>
-        option
-          .setName('query')
-          .setDescription('Page number, username, or "dump"')
-          .setRequired(false),
-      );
+      command
+        .addStringOption((option) =>
+          option
+            .setName('query')
+            .setDescription('Page number or username')
+            .setRequired(false),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('action')
+            .setDescription('View history or export an account file')
+            .setRequired(false)
+            .addChoices(
+              { name: 'View', value: 'view' },
+              { name: 'Export', value: 'export' },
+            ),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('type')
+            .setDescription('Account type to export (default: all)')
+            .setRequired(false)
+            .addChoices(
+              { name: 'All types', value: 'all' },
+              ...ACCOUNT_TYPES.map((type) => ({ name: type, value: type })),
+            ),
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName('page')
+            .setDescription('Only export this history page')
+            .setMinValue(1)
+            .setRequired(false),
+        )
+        .addStringOption((option) =>
+          option
+            .setName('format')
+            .setDescription('Export file format')
+            .setRequired(false)
+            .addChoices(
+              { name: 'Text', value: 'txt' },
+              { name: 'CSV', value: 'csv' },
+              { name: 'JSON', value: 'json' },
+            ),
+        );
       break;
     case 'autogen':
-    case 'key':
     case 'panel':
     case 'balance':
     case 'stock':
