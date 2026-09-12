@@ -3,8 +3,17 @@ import { BLOXGEN_API_KEY } from './config.js';
 
 const BASE_URL = 'https://core.bloxgen.net';
 
-// The 5 account types supported by /api/generate
-export const ACCOUNT_TYPES = ['alt', '+30 days old', '+1 year old', '5+ years old', 'dump'];
+// Account type values accepted by /api/generate. The public docs currently
+// show five types; the dashboard's newer 18+ age-verified option uses this
+// exact label and may still depend on the BloxGen plan/stock for the API key.
+export const ACCOUNT_TYPES = [
+  'alt',
+  '+30 days old',
+  '+1 year old',
+  '5+ years old',
+  'dump',
+  '18+ age verified',
+];
 
 function numberOrNull(value) {
   if (value === null || value === undefined || value === '') return null;
