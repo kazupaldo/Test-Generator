@@ -10,7 +10,16 @@ import {
 } from '../lib/delivery.js';
 
 const PAGE_SIZE = 10;
-const EXPORT_FORMATS = new Set(['txt', 'text', 'csv', 'json']);
+const EXPORT_FORMATS = new Set([
+  'txt',
+  'text',
+  'csv',
+  'json',
+  'user:pass',
+  'user:pass:cookie',
+  'userpass',
+  'userpasscookie',
+]);
 
 function fmtDate(iso) {
   if (!iso) return 'N/A';
@@ -89,7 +98,7 @@ function parseExportArgs(args) {
   const typeParts = [];
   let type = null;
   let page = null;
-  let format = 'txt';
+  let format = 'userpasscookie';
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -118,8 +127,10 @@ function parseExportArgs(args) {
   if (!type && typeParts.length) type = typeParts.join(' ');
   type = type?.trim() || 'all';
   if (type.toLowerCase() === 'all') type = null;
-  if (!EXPORT_FORMATS.has(format)) format = 'txt';
+  if (!EXPORT_FORMATS.has(format)) format = 'userpasscookie';
   if (format === 'text') format = 'txt';
+  if (format === 'user:pass' || format === 'userpass') format = 'userpass';
+  if (format === 'user:pass:cookie' || format === 'userpasscookie') format = 'userpasscookie';
   return { type, page, format };
 }
 
@@ -149,11 +160,23 @@ function exportJson(accounts) {
   return JSON.stringify(accounts, null, 2);
 }
 
+function exportUserPass(accounts) {
+  return accounts.map((account) => `${account.username}:${account.password}`).join('\n');
+}
+
+function exportUserPassCookie(accounts) {
+  return accounts
+    .filter((account) => account.cookie)
+    .map((account) => `${account.username}:${account.password}:${account.cookie}`)
+    .join('\n');
+}
+
 async function exportHistory(message, args) {
   const { type, page, format } = parseExportArgs(args);
   const data = page ? await getHistory({ page, limit: 100 }) : { history: await getAllHistory() };
   const accounts = (data?.history ?? []).filter((account) =>
-    account.username && account.password && account.cookie &&
+    account.username && account.password &&
+    (format !== 'userpasscookie' || account.cookie) &&
     (!type || String(account.type).toLowerCase() === type.toLowerCase()),
   );
   if (!accounts.length) {
@@ -164,15 +187,24 @@ async function exportHistory(message, args) {
     ? exportCsv(accounts)
     : format === 'json'
       ? exportJson(accounts)
-      : exportText(accounts);
-  const extension = format;
+      : format === 'userpass'
+        ? exportUserPass(accounts)
+        : format === 'userpasscookie'
+          ? exportUserPassCookie(accounts)
+          : exportText(accounts);
+  const extension = format === 'userpass' || format === 'userpasscookie' ? 'txt' : format;
+  const formatLabel = format === 'userpass'
+    ? 'user:pass'
+    : format === 'userpasscookie'
+      ? 'user:pass:cookie'
+      : format.toUpperCase();
   const suffix = type ? `-${type.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')}` : '';
   const file = new AttachmentBuilder(Buffer.from(content, 'utf8'), {
-    name: `bloxgen-history${suffix}${page ? `-page-${page}` : ''}.${extension}`,
+    name: `bloxgen-history-${format.replace(/:/g, '-')}${suffix}${page ? `-page-${page}` : ''}.${extension}`,
   });
   try {
     await sendDirectMessage(message.author, {
-      content: `📦 **${accounts.length}** account${accounts.length === 1 ? '' : 's'} exported as **${format.toUpperCase()}**. Keep this file private.`,
+      content: `📦 **${accounts.length}** account${accounts.length === 1 ? '' : 's'} exported as **${formatLabel}**. Keep this file private.`,
       files: [file],
     });
     return '📩 Export sent to your DMs.';
