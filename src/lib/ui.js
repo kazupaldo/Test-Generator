@@ -1,6 +1,7 @@
 // Reusable embeds and message components.
 import {
   EmbedBuilder,
+  AttachmentBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
   ButtonBuilder,
@@ -55,9 +56,28 @@ export function buildAccountEmbed(acc, voice) {
     });
   }
   if (acc.cookie) {
-    embed.addFields({ name: '.ROBLOSECURITY cookie', value: '```\n' + acc.cookie + '\n```' });
+    const cookie = String(acc.cookie);
+    const cookieValue = `\`\`\`\n${cookie}\n\`\`\``;
+    embed.addFields({
+      name: '.ROBLOSECURITY cookie',
+      value: cookieValue.length <= 1024
+        ? cookieValue
+        : 'The cookie is included in the attached private account file.',
+    });
   }
   return embed;
+}
+
+export function buildAccountFile(acc) {
+  if (!acc.cookie) return null;
+  const contents = [
+    `username: ${acc.username ?? ''}`,
+    `password: ${acc.password ?? ''}`,
+    `cookie: ${acc.cookie}`,
+  ].join('\n');
+  return new AttachmentBuilder(Buffer.from(contents, 'utf8'), {
+    name: `bloxgen-${String(acc.username || 'account').replace(/[^a-z0-9_-]/gi, '_')}.txt`,
+  });
 }
 
 // A "Generate again" button that regenerates the same type.
@@ -101,7 +121,9 @@ export function buildAutoGenerationPanel(guildId) {
   const selected = getAutoGenerationTypes(guildId);
   const remaining = status.endsAt ? Math.max(0, status.endsAt - Date.now()) : AUTO_GENERATION_DURATION_MS;
   const statusText = status.enabled
-    ? `Enabled. Next accounts rotate through the selected categories. Approximately **${formatDuration(remaining)}** remain.`
+    ? status.pausedReason
+      ? `Enabled but paused: ${status.pausedReason} Approximately **${formatDuration(remaining)}** remain.`
+      : `Enabled. Smart generate is selecting the next stocked type under its daily limit. Approximately **${formatDuration(remaining)}** remain.`
     : 'Disabled. Nothing will be generated until an admin presses **Enable**.';
 
   const embed = new EmbedBuilder()
@@ -110,13 +132,28 @@ export function buildAutoGenerationPanel(guildId) {
     .setDescription(
       `${statusText}\n\n` +
       `Generates immediately, then one account every **${formatDuration(AUTO_GENERATION_INTERVAL_MS)}** for up to **24 hours**.\n` +
-      'Before each attempt, the bot checks BloxGen stock and skips categories that are unavailable.\n' +
+      'Before each attempt, the bot refreshes stock and daily limits, skips unavailable or limited categories, and resumes automatically when stock returns or limits reset.\n' +
       'Accounts follow the server’s current DM, channel, or DM + channel delivery setting.',
     )
     .addFields({
       name: 'Selected categories',
       value: status.types.map((type) => `\`${type}\``).join(' · '),
     });
+
+  if (status.enabled) {
+    embed.addFields(
+      {
+        name: '📊 Run totals',
+        value: `Generated: **${status.generatedCount}**\nSkipped/checks: **${status.skippedCount}**\nAttempts: **${status.attemptCount}**`,
+        inline: true,
+      },
+      {
+        name: '🔎 Last activity',
+        value: `Last type: **${status.lastType || '—'}**\nLast stock check: ${status.lastStockCheckAt ? `<t:${Math.floor(status.lastStockCheckAt / 1000)}:R>` : '—'}\nLast limit check: ${status.lastLimitCheckAt ? `<t:${Math.floor(status.lastLimitCheckAt / 1000)}:R>` : '—'}`,
+        inline: true,
+      },
+    );
+  }
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId('autogen-types')

@@ -1,3 +1,4 @@
+import { PermissionFlagsBits } from 'discord.js';
 import { getDelivery, getDeliveryChannel } from './settings.js';
 import {
   logDirectMessageError,
@@ -18,6 +19,30 @@ async function resolveChannel(client, guildId, fallbackChannel) {
     );
   }
   return channel;
+}
+
+// Validate destinations before calling BloxGen. A failed Discord delivery
+// should not consume an account that the user never receives.
+export async function ensureDeliveryReady({ client, guildId, fallbackChannel, user }) {
+  const mode = getDelivery(guildId);
+
+  if (mode === 'dm' || mode === 'both') {
+    await user.createDM();
+  }
+
+  if (mode === 'server' || mode === 'both') {
+    const channel = await resolveChannel(client, guildId, fallbackChannel);
+    const permissions = channel.permissionsFor?.(client.user);
+    if (permissions && !permissions.has(PermissionFlagsBits.SendMessages)) {
+      throw new Error(`I cannot send messages in <#${channel.id}>. Give the bot the **Send Messages** permission.`);
+    }
+    if (permissions && !permissions.has(PermissionFlagsBits.EmbedLinks)) {
+      throw new Error(`I cannot send embeds in <#${channel.id}>. Give the bot the **Embed Links** permission.`);
+    }
+    if (permissions && !permissions.has(PermissionFlagsBits.AttachFiles)) {
+      throw new Error(`I cannot attach account details in <#${channel.id}>. Give the bot the **Attach Files** permission.`);
+    }
+  }
 }
 
 // Sends the same generated account to every destination required by the
