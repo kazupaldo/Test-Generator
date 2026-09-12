@@ -8,7 +8,7 @@ import { deliverAccount } from '../lib/account-delivery.js';
 export default {
   name: 'generate',
   aliases: ['gen'],
-  async execute({ message, args, client, apiKey }) {
+  async execute({ message, args, client }) {
     const type = args.join(' ').trim();
 
     // No type given -> show the interactive dropdown panel.
@@ -22,7 +22,7 @@ export default {
       type,
       user: message.author,
       guildId: message.guildId,
-      apiKey,
+      fallbackChannel: message.channel,
     });
 
     try {

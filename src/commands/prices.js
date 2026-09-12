@@ -4,8 +4,8 @@ import { COLORS } from '../config.js';
 
 export default {
   name: 'prices',
-  async execute({ apiKey }) {
-    const data = await getPrices(apiKey);
+  async execute() {
+    const data = await getPrices();
     const lines = Object.entries(data).map(([type, price]) => `\`${type}\` — $${price}`);
     const embed = new EmbedBuilder()
       .setTitle('Account prices')

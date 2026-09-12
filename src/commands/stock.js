@@ -33,8 +33,8 @@ export function buildStockReply(data) {
 
 export default {
   name: 'stock',
-  async execute({ apiKey }) {
-    const data = await getStock(apiKey);
+  async execute() {
+    const data = await getStock();
     return buildStockReply(data);
   },
 };

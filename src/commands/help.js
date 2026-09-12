@@ -19,7 +19,8 @@ export default {
             `> **\`${p}panel\`** — open the dropdown picker`,
             `> **\`${p}balance\`** — your BloxGen balance`,
             `> **\`${p}history [page]\`** — list your generated accounts`,
-            `> **\`${p}history <username>\`** — DM that account's login · **\`${p}history dump\`** — DM all (user:pass:cookie)`,
+            `> **\`${p}history <username>\`** — DM that account's login`,
+            `> **\`${p}history export [type] [page] [format]\`** — export filtered history (txt/csv/json)`,
           ].join('\n'),
         },
         {
@@ -41,7 +42,6 @@ export default {
             `> **\`${p}settings [dm|server|both] #channel\`** — DM, channel, or both *(admin)*`,
             `> **\`${p}logs [here|#channel|off]\`** — log generations *(admin)*`,
             `> **\`${p}autogen\`** — enable or disable 24-hour auto-generation *(admin)*`,
-            `> **\`${p}key\`** — securely add or manage your personal BloxGen API key`,
           ].join('\n'),
         },
         {

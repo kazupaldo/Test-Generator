@@ -5,12 +5,12 @@ import { COLORS } from '../config.js';
 export default {
   name: 'status',
   aliases: ['ping'],
-  async execute({ apiKey }) {
+  async execute() {
     // Fetch everything in parallel; failures degrade gracefully to "unknown".
     const [health, botting, balance] = await Promise.allSettled([
       getHealth(),
-      getBottingStatus(apiKey),
-      getBalance(apiKey),
+      getBottingStatus(),
+      getBalance(),
     ]);
 
     const apiOk = health.status === 'fulfilled' && health.value.ok;
