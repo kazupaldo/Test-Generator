@@ -1,9 +1,13 @@
-import { ACCOUNT_TYPES, getStock } from '../bloxgen.js';
+import {
+  ACCOUNT_TYPES,
+  canGenerateType,
+  getDailyLimit,
+  getStock,
+} from '../bloxgen.js';
 import { generateAccount } from './generation.js';
 import { getDelivery } from './settings.js';
 import { deliverAccount } from './account-delivery.js';
 import { logDirectMessageError } from './delivery.js';
-import { getUserApiKey } from './api-keys.js';
 
 export const AUTO_GENERATION_INTERVAL_MS = 5 * 1000;
 export const AUTO_GENERATION_DURATION_MS = 24 * 60 * 60 * 1000;
@@ -40,6 +44,14 @@ export function getAutoGenerationStatus(guildId) {
       types: getAutoGenerationTypes(guildId),
       intervalMs: AUTO_GENERATION_INTERVAL_MS,
       endsAt: null,
+      generatedCount: 0,
+      skippedCount: 0,
+      attemptCount: 0,
+      pausedReason: null,
+      lastType: null,
+      lastGeneratedAt: null,
+      lastStockCheckAt: null,
+      lastLimitCheckAt: null,
     };
   }
 
@@ -48,12 +60,20 @@ export function getAutoGenerationStatus(guildId) {
     types: run.types,
     intervalMs: run.intervalMs,
     endsAt: run.endsAt,
+    generatedCount: run.generatedCount,
+    skippedCount: run.skippedCount,
+    attemptCount: run.attemptCount,
+    pausedReason: run.pausedReason,
+    lastType: run.lastType,
+    lastGeneratedAt: run.lastGeneratedAt,
+    lastStockCheckAt: run.lastStockCheckAt,
+    lastLimitCheckAt: run.lastLimitCheckAt,
   };
 }
 
 async function deliverGeneratedAccount(client, run, payload, user) {
   const fallbackChannel = ['server', 'both'].includes(getDelivery(run.guildId))
-    ? await client.channels.fetch(run.channelId)
+    ? await client.channels.fetch(run.channelId).catch(() => null)
     : null;
   return deliverAccount({
     client,
@@ -65,39 +85,74 @@ async function deliverGeneratedAccount(client, run, payload, user) {
   });
 }
 
+function refreshPanel(run) {
+  if (!run.refresh || run.refreshing) return;
+  run.refreshing = true;
+  Promise.resolve(run.refresh())
+    .catch((err) => console.error('Failed to refresh the auto-generation panel:', err.message))
+    .finally(() => {
+      run.refreshing = false;
+    });
+}
+
 async function generateNext(client, run) {
   if (run.generating || activeRuns.get(run.guildId) !== run) return;
   if (Date.now() < run.cooldownUntil) return;
   run.generating = true;
+  run.attemptCount++;
 
   try {
-    // Fail closed when the stock endpoint is unavailable so auto-generation
-    // never blindly spends balance while the inventory is unknown.
-    const apiKey = getUserApiKey(run.userId);
-    const stock = await getStock(apiKey);
-    const availableTypes = run.types.filter((type) => isInStock(stock?.[type]));
-    if (!availableTypes.length) {
-      console.log(`Auto-generation skipped for guild ${run.guildId}: no selected types in stock.`);
+    // Both checks happen immediately before every paid generation. A type at
+    // its limit is skipped and the next stocked type is tried instead.
+    const [stock, limits] = await Promise.all([getStock(), getDailyLimit()]);
+    run.lastStockCheckAt = Date.now();
+    run.lastLimitCheckAt = Date.now();
+
+    const stockedTypes = run.types.filter((type) => isInStock(stock?.[type]));
+    const availableTypes = stockedTypes.filter((type) => canGenerateType(limits, type));
+
+    if (!stockedTypes.length) {
+      run.pausedReason = 'No selected account types are in stock. Checking again automatically for restock.';
+      run.skippedCount++;
+      console.log(`Auto-generation paused for guild ${run.guildId}: no selected types in stock.`);
+      refreshPanel(run);
       return;
     }
 
+    if (!availableTypes.length) {
+      run.pausedReason = 'All stocked selected types are at their daily limit. Checking again for the next reset.';
+      run.skippedCount++;
+      console.log(`Auto-generation paused for guild ${run.guildId}: selected types reached their daily limit.`);
+      refreshPanel(run);
+      return;
+    }
+
+    run.pausedReason = null;
     const type = availableTypes[run.nextTypeIndex % availableTypes.length];
-    run.nextTypeIndex += 1;
+    run.nextTypeIndex++;
     const user = await client.users.fetch(run.userId);
     const payload = await generateAccount(client, {
       type,
       user,
       guildId: run.guildId,
-      apiKey,
+      fallbackChannel: await client.channels.fetch(run.channelId).catch(() => null),
+      preflight: { stock, limits },
     });
     const delivery = await deliverGeneratedAccount(client, run, payload, user);
+
     if (delivery.mode === 'both' && (delivery.channelError || delivery.dmError)) {
       if (delivery.dmError) logDirectMessageError('auto-generation', user, delivery.dmError);
       await disableAutoGeneration(run.guildId, { refresh: true });
       console.error(`Auto-generation stopped for guild ${run.guildId}: one of the required delivery destinations failed.`);
       return;
     }
+
+    run.generatedCount++;
+    run.lastType = type;
+    run.lastGeneratedAt = Date.now();
+    run.lastError = null;
     console.log(`Auto-generated ${type} for guild ${run.guildId}.`);
+    refreshPanel(run);
   } catch (err) {
     if (err.deliveryResult?.channelError) {
       await disableAutoGeneration(run.guildId, { refresh: true });
@@ -109,27 +164,25 @@ async function generateNext(client, run) {
     }
 
     if (getDelivery(run.guildId) !== 'server' && err?.code === 50007) {
-      // Do not keep generating paid accounts when Discord will not deliver
-      // them. The admin can enable the run again after fixing DM privacy.
       await disableAutoGeneration(run.guildId, { refresh: true });
-      console.error(
-        `Auto-generation stopped for guild ${run.guildId}: DMs are blocked for the account recipient.`,
-      );
+      console.error(`Auto-generation stopped for guild ${run.guildId}: DMs are blocked for the account recipient.`);
       return;
     }
 
     const messageSeconds = Number(err.message?.match(/wait\s+(\d+)\s*second/i)?.[1]) || 0;
     const rawTimeRemaining = Number(err.timeRemaining) || 0;
-    // BloxGen's timeRemaining is returned in milliseconds, while some error
-    // messages report whole seconds. Prefer the readable message and convert
-    // the raw value so a 3579ms cooldown is not treated as 3579 seconds.
     const seconds = messageSeconds ||
       (rawTimeRemaining >= 1000 ? Math.ceil(rawTimeRemaining / 1000) : rawTimeRemaining);
     if (seconds > 0) {
       run.cooldownUntil = Date.now() + seconds * 1000;
-      console.log(`Auto-generation paused for ${seconds}s due to the BloxGen cooldown.`);
     }
+
+    run.pausedReason = err.isDailyLimit
+      ? `BloxGen rejected \`${err.accountType || run.lastType || 'the selected type'}\` because its daily limit was reached.`
+      : err.message;
+    run.skippedCount++;
     console.error(`Auto-generation failed for guild ${run.guildId}:`, err.message);
+    refreshPanel(run);
   } finally {
     run.generating = false;
   }
@@ -171,6 +224,16 @@ export function enableAutoGeneration(client, {
     nextTypeIndex: 0,
     generating: false,
     cooldownUntil: 0,
+    generatedCount: 0,
+    skippedCount: 0,
+    attemptCount: 0,
+    lastType: null,
+    lastGeneratedAt: null,
+    lastStockCheckAt: null,
+    lastLimitCheckAt: null,
+    lastError: null,
+    pausedReason: null,
+    refreshing: false,
     interval: null,
     timeout: null,
     refresh: null,
