@@ -30,6 +30,10 @@ function countStockedTypes(types, stock) {
   return types.filter((type) => isInStock(stock?.[type])).length;
 }
 
+function normalizeType(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
 function parseResetTime(value) {
   if (value === null || value === undefined || value === '') return null;
   const numeric = Number(value);
@@ -70,6 +74,17 @@ function blockLimitedTypes(run, types, limits) {
   for (const type of types) run.limitBlockedTypes.set(type, blockedUntil);
 }
 
+function clearExpiredTypeCooldowns(run) {
+  const now = Date.now();
+  for (const [type, cooldownUntil] of run.typeCooldowns) {
+    if (cooldownUntil <= now) run.typeCooldowns.delete(type);
+  }
+}
+
+function isTypeCoolingDown(run, type) {
+  return (run.typeCooldowns.get(type) ?? 0) > Date.now();
+}
+
 export function getAutoGenerationTypes(guildId) {
   return selectedTypes.get(guildId) ?? DEFAULT_AUTO_GENERATION_TYPES;
 }
@@ -100,6 +115,7 @@ export function getAutoGenerationStatus(guildId) {
       stockAvailableCount: null,
       remainingGenerations: null,
       limitBlockedTypes: [],
+      cooldownTypes: [],
     };
   }
 
@@ -120,6 +136,7 @@ export function getAutoGenerationStatus(guildId) {
     stockAvailableCount: run.stock ? countStockedTypes(run.types, run.stock) : null,
     remainingGenerations: run.limits?.remainingGenerations ?? null,
     limitBlockedTypes: [...run.limitBlockedTypes.keys()],
+    cooldownTypes: [...run.typeCooldowns.keys()],
   };
 }
 
@@ -165,11 +182,15 @@ async function generateNext(client, run) {
     run.lastStockCheckAt = Date.now();
     run.lastLimitCheckAt = run.lastStockCheckAt;
     clearRecoveredLimitBlocks(run, limits);
+    clearExpiredTypeCooldowns(run);
     refreshPanel(run);
 
     const stockedTypes = run.types.filter((type) => isInStock(stock?.[type]));
-    const availableTypes = stockedTypes.filter(
+    const limitAvailableTypes = stockedTypes.filter(
       (type) => canGenerateType(limits, type) && !run.limitBlockedTypes.has(type),
+    );
+    const availableTypes = limitAvailableTypes.filter(
+      (type) => !isTypeCoolingDown(run, type),
     );
 
     if (!stockedTypes.length) {
@@ -180,7 +201,7 @@ async function generateNext(client, run) {
       return;
     }
 
-    if (!availableTypes.length) {
+    if (!limitAvailableTypes.length) {
       run.waitingReason = null;
       run.skippedCount++;
       console.log(`Auto-generation skipped for guild ${run.guildId}: all stocked selected types are at their daily limit.`);
@@ -188,7 +209,15 @@ async function generateNext(client, run) {
       return;
     }
 
-    run.waitingReason = null;
+    if (!availableTypes.length) {
+      run.waitingReason = null;
+      run.skippedCount++;
+      console.log(`Auto-generation skipped for guild ${run.guildId}: all eligible stocked types are on cooldown.`);
+      refreshPanel(run, true);
+      return;
+    }
+
+    /* Keep the paid request below separate from the stock/limit filters. */
     const type = availableTypes[run.nextTypeIndex % availableTypes.length];
     attemptedType = type;
     run.nextTypeIndex++;
@@ -231,18 +260,28 @@ async function generateNext(client, run) {
       return;
     }
 
-    const messageSeconds = Number(err.message?.match(/wait\s+(\d+)\s*second/i)?.[1]) || 0;
+    const messageSeconds = Number(err.message?.match(/wait\s+(\d+)\s*minute/i)?.[1]) * 60 ||
+      Number(err.message?.match(/wait\s+(\d+)\s*second/i)?.[1]) || 0;
     const rawTimeRemaining = Number(err.timeRemaining) || 0;
     const seconds = messageSeconds ||
       (rawTimeRemaining >= 1000 ? Math.ceil(rawTimeRemaining / 1000) : rawTimeRemaining);
-    if (seconds > 0 && !err.isDailyLimit) {
-      run.cooldownUntil = Date.now() + seconds * 1000;
+
+    if (seconds > 0) {
+      const cooldownType = attemptedType ||
+        run.types.find((type) => normalizeType(err.accountType) === normalizeType(type));
+      if (cooldownType) {
+        run.typeCooldowns.set(cooldownType, Date.now() + seconds * 1000);
+        console.log(`Auto-generation skipped ${cooldownType} for ${seconds}s in guild ${run.guildId}; other types remain active.`);
+      } else {
+        run.cooldownUntil = Date.now() + seconds * 1000;
+        console.log(`Auto-generation is rate-limited for ${seconds}s in guild ${run.guildId}; the run remains enabled.`);
+      }
     }
 
     if (err.isDailyLimit) {
       const matchingType = err.accountType
         ? run.types.find(
-          (type) => type.trim().toLowerCase() === String(err.accountType).trim().toLowerCase(),
+          (type) => normalizeType(type) === normalizeType(err.accountType),
         )
         : null;
       const limitedTypes = matchingType
@@ -253,12 +292,10 @@ async function generateNext(client, run) {
       blockLimitedTypes(run, limitedTypes, run.limits);
     }
 
-    run.waitingReason = err.isDailyLimit
-      ? `\`${err.accountType || attemptedType || run.lastType || 'the selected type'}\` is at its daily limit; it will not be retried until the limit resets.`
-      : err.message;
+    run.waitingReason = null;
     run.lastError = err.message;
     run.skippedCount++;
-    console.error(`Auto-generation failed for guild ${run.guildId}:`, err.message);
+    console.error(`Auto-generation skipped for guild ${run.guildId}:`, err.message);
     refreshPanel(run, true);
   } finally {
     run.generating = false;
@@ -315,6 +352,7 @@ export function enableAutoGeneration(client, {
     stock: null,
     limits: null,
     limitBlockedTypes: new Map(),
+    typeCooldowns: new Map(),
     interval: null,
     panelInterval: null,
     refresh: null,

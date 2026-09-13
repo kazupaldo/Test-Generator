@@ -180,7 +180,7 @@ export function buildAutoGenerationPanel(guildId) {
   const statusText = status.enabled
     ? status.waitingReason
       ? `Enabled. ${status.waitingReason}`
-      : 'Enabled. Smart generation is selecting the next stocked type under its daily limit and will continue until an admin presses **Disable**.'
+      : 'Enabled. Auto-generation will continue until an admin presses **Disable**.'
     : 'Disabled. Nothing will be generated until an admin presses **Enable**.';
 
   const embed = new EmbedBuilder()
@@ -207,7 +207,7 @@ export function buildAutoGenerationPanel(guildId) {
       },
       {
         name: '🔄 Automatic checks',
-        value: `Stock: **${status.stockAvailableCount ?? '?'}/${status.selectedTypeCount}** selected in stock\nDaily remaining: **${status.remainingGenerations ?? 'unknown'}**\nLimit-blocked: **${status.limitBlockedTypes?.length ? status.limitBlockedTypes.join(', ') : 'none'}**\nLast refresh: ${status.lastStockCheckAt ? `<t:${Math.floor(status.lastStockCheckAt / 1000)}:R>` : '—'}`,
+        value: `Stock: **${status.stockAvailableCount ?? '?'}/${status.selectedTypeCount}** selected in stock\nDaily remaining: **${status.remainingGenerations ?? 'unknown'}**\nLimit-blocked: **${status.limitBlockedTypes?.length ? status.limitBlockedTypes.join(', ') : 'none'}**\nCooldown-skipped: **${status.cooldownTypes?.length ? status.cooldownTypes.join(', ') : 'none'}**\nLast refresh: ${status.lastStockCheckAt ? `<t:${Math.floor(status.lastStockCheckAt / 1000)}:R>` : '—'}`,
         inline: true,
       },
       {
