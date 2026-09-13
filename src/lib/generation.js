@@ -6,7 +6,7 @@ import {
   getStock,
 } from '../bloxgen.js';
 import { checkVoiceChat } from '../roblox.js';
-import { buildAccountEmbed, buildAccountFile, generateAgainRow } from './ui.js';
+import { accountActionsRow, buildAccountEmbed, buildAccountFile } from './ui.js';
 import { logGeneration } from './logger.js';
 import { ensureDeliveryReady } from './account-delivery.js';
 
@@ -27,11 +27,14 @@ async function verifyGenerationEligibility(type, preflight) {
   if (!canGenerateType(limits, type)) {
     const typeLimit = limits?.accountTypes?.find((item) => item.accountType === type);
     const remaining = typeLimit?.remainingGenerations ?? limits?.remainingGenerations;
-    throw new Error(
+    const error = new Error(
       remaining === 0
         ? `❌ The daily limit for \`${type}\` has been reached. Try another account type.`
         : '❌ The BloxGen daily generation limit has been reached. Try again after the reset.',
     );
+    error.isDailyLimit = true;
+    error.accountType = type;
+    throw error;
   }
   return { stock, limits };
 }
@@ -53,7 +56,7 @@ export async function generateAccount(client, {
   const file = buildAccountFile(acc);
   return {
     embeds: [buildAccountEmbed(acc, voice)],
-    components: [generateAgainRow(type)],
+    components: [accountActionsRow(type, acc.username, user?.id)],
     ...(file ? { files: [file] } : {}),
   };
 }

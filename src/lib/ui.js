@@ -179,7 +179,7 @@ export function buildAutoGenerationPanel(guildId) {
   const selected = getAutoGenerationTypes(guildId);
   const statusText = status.enabled
     ? status.waitingReason
-      ? `Enabled. ${status.waitingReason} The bot keeps checking automatically and continues when an eligible type is available.`
+      ? `Enabled. ${status.waitingReason}`
       : 'Enabled. Smart generation is selecting the next stocked type under its daily limit and will continue until an admin presses **Disable**.'
     : 'Disabled. Nothing will be generated until an admin presses **Enable**.';
 
@@ -189,7 +189,7 @@ export function buildAutoGenerationPanel(guildId) {
     .setDescription(
       `${statusText}\n\n` +
       `Generates immediately, then one account every **${formatDuration(AUTO_GENERATION_INTERVAL_MS)}** until disabled.\n` +
-      'Before each attempt, the bot refreshes stock and daily limits, skips unavailable or limited categories, and keeps checking until stock returns or limits reset.\n' +
+      'Before each cycle, the bot refreshes stock and daily limits, skips unavailable or limited categories, then checks again on the next cycle.\n' +
       'Accounts follow the server’s current DM, channel, or DM + channel delivery setting.',
     )
     .addFields({
