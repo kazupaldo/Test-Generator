@@ -29,6 +29,18 @@ function firstNumber(...values) {
   return null;
 }
 
+function isFalse(value) {
+  return value === false || String(value).toLowerCase() === 'false';
+}
+
+function canUseRemaining(remaining) {
+  return remaining === null || remaining > 0;
+}
+
+function normalizeTypeName(value) {
+  return String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 function normalizeTypeLimit(item) {
   const dailyLimit = firstNumber(item.dailyLimit, item.limit, item.maxGenerations);
   const generationsToday = firstNumber(item.generationsToday, item.used, item.generated);
@@ -43,8 +55,8 @@ function normalizeTypeLimit(item) {
     generationsToday,
     dailyLimit,
     remainingGenerations,
-    canGenerate: item.canGenerate !== false &&
-      remainingGenerations !== 0 &&
+    canGenerate: !isFalse(item.canGenerate) &&
+      canUseRemaining(remainingGenerations) &&
       !(dailyLimit !== null && generationsToday !== null && generationsToday >= dailyLimit),
   };
 }
@@ -52,18 +64,27 @@ function normalizeTypeLimit(item) {
 // BloxGen has returned a few different field names for limits over time. Keep
 // one normalized shape in the bot so auto-generation and /limits cannot drift.
 export function normalizeDailyLimit(data = {}) {
-  const dailyLimit = firstNumber(data.dailyLimit, data.limit, data.maxGenerations);
-  const generationsToday = firstNumber(data.generationsToday, data.used, data.generated);
-  const explicitRemaining = firstNumber(data.remainingGenerations, data.remaining);
+  const source = data?.data && typeof data.data === 'object' ? data.data : data;
+  const dailyLimit = firstNumber(source.dailyLimit, source.limit, source.maxGenerations);
+  const generationsToday = firstNumber(source.generationsToday, source.used, source.generated);
+  const explicitRemaining = firstNumber(source.remainingGenerations, source.remaining);
   const remainingGenerations = explicitRemaining ??
     (dailyLimit !== null && generationsToday !== null
       ? Math.max(0, dailyLimit - generationsToday)
       : null);
-  const rawTypes = data.accountTypes ?? data.types ?? [];
+  const rawTypes = source.accountTypes ??
+    source.account_types ??
+    source.accountTypeLimits ??
+    source.types ??
+    [];
   const typeItems = Array.isArray(rawTypes)
     ? rawTypes
     : Object.entries(rawTypes).map(([accountType, value]) =>
-      value && typeof value === 'object' ? { accountType, ...value } : { accountType, canGenerate: value },
+      value && typeof value === 'object'
+        ? { accountType, ...value }
+        : numberOrNull(value) !== null
+          ? { accountType, remainingGenerations: value }
+          : { accountType, canGenerate: value },
     );
   const accountTypes = typeItems
     .filter((item) => item && typeof item === 'object')
@@ -74,16 +95,17 @@ export function normalizeDailyLimit(data = {}) {
     generationsToday,
     dailyLimit,
     remainingGenerations,
-    resetTime: data.resetTime ?? data.resetsAt ?? null,
+    resetTime: source.resetTime ?? source.resetsAt ?? source.resetAt ?? null,
     accountTypes,
-    canGenerate: data.canGenerate !== false && remainingGenerations !== 0 &&
+    canGenerate: !isFalse(source.canGenerate) &&
+      canUseRemaining(remainingGenerations) &&
       !(dailyLimit !== null && generationsToday !== null && generationsToday >= dailyLimit),
   };
 }
 
 export function getTypeDailyLimit(snapshot, type) {
   return snapshot?.accountTypes?.find(
-    (item) => String(item.accountType).toLowerCase() === String(type).toLowerCase(),
+    (item) => normalizeTypeName(item.accountType) === normalizeTypeName(type),
   ) ?? null;
 }
 

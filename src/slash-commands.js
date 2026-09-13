@@ -15,7 +15,8 @@ const descriptions = {
   logs: 'Configure the generation log channel',
   history: 'View or export your generated account history',
   help: 'Show the command guide',
-  autogen: 'Open the 24-hour auto-generation panel',
+  autogen: 'Open the continuous auto-generation panel',
+  secure: 'Open a private password security action',
 };
 
 function base(name) {
@@ -129,6 +130,21 @@ function buildCommand(name) {
         );
       break;
     case 'autogen':
+    case 'secure':
+      if (name === 'secure') {
+        command
+          .addStringOption((option) =>
+            option.setName('account').setDescription('Generated Roblox username').setRequired(false),
+          )
+          .addStringOption((option) =>
+            option
+              .setName('type')
+              .setDescription('Show recent accounts of only this type')
+              .setRequired(false)
+              .addChoices(...ACCOUNT_TYPES.map((type) => ({ name: type, value: type }))),
+          );
+      }
+      break;
     case 'panel':
     case 'balance':
     case 'stock':
