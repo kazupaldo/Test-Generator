@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { PREFIX } from '../config.js';
 import { listUserApiKeys, setActiveUserApiKey } from '../lib/api-keys.js';
+import { describeDirectMessageError, sendDirectMessage } from '../lib/delivery.js';
 
 export function buildApiKeyPanel() {
   const buttons = new ActionRowBuilder().addComponents(
@@ -63,7 +64,7 @@ export function buildApiKeyModal() {
 export default {
   name: 'key',
   aliases: ['apikey'],
-  execute({ interaction, message, args = [] }) {
+  async execute({ interaction, message, args = [] }) {
     if (!interaction) {
       const action = (args[0] || '').toLowerCase();
       if (action === 'use' && args[1]) {
@@ -74,8 +75,13 @@ export default {
       const keys = listUserApiKeys(message.author.id);
       return keys.names.length
         ? `Saved keys: ${keys.names.map((name) => `\`${name}\``).join(', ')} · active: \`${keys.active}\`\nUse \`${PREFIX}key use <name>\` or \`${PREFIX}key\` to manage them.`
-        : 'Use `/key` or `+key` to securely add a personal BloxGen API key.';
+        : 'Use `/key` or `+key` to receive the private API-key setup panel.';
     }
-    return buildApiKeyPanel();
+    try {
+      await sendDirectMessage(message.author, buildApiKeyPanel());
+      return '📩 I sent the API-key setup panel to your DMs. Your key will never be requested in a server channel.';
+    } catch (error) {
+      return `❌ I could not DM you the private API-key setup panel. ${describeDirectMessageError(error)}`;
+    }
   },
 };
