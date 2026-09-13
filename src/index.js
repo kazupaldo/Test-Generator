@@ -1,14 +1,12 @@
 // Simple Discord bot for the BloxGen API — entry point.
 import { Client, GatewayIntentBits } from 'discord.js';
-import { DISCORD_TOKEN, PREFIX } from './config.js';
+import { DISCORD_TOKEN, BLOXGEN_API_KEY, PREFIX } from './config.js';
 import * as messageCreate from './events/messageCreate.js';
 import * as interactionCreate from './events/interactionCreate.js';
 import { registerSlashCommands } from './slash-commands.js';
-import { restoreAutoGenerationRuns } from './lib/auto-generation.js';
-import { drainDeliveryQueue } from './lib/delivery-queue.js';
 
-if (!DISCORD_TOKEN) {
-  console.error('Missing DISCORD_TOKEN. Copy .env.example to .env and fill the bot token.');
+if (!DISCORD_TOKEN || !BLOXGEN_API_KEY) {
+  console.error('Missing env vars. Copy .env.example to .env and fill DISCORD_TOKEN and BLOXGEN_API_KEY.');
   process.exit(1);
 }
 
@@ -30,8 +28,6 @@ client.once('clientReady', async (c) => {
       console.error(`Failed to register slash commands in ${guild.name}:`, err.message);
     }
   }
-  await restoreAutoGenerationRuns(c);
-  setInterval(() => drainDeliveryQueue(c), 10_000).unref?.();
 });
 
 client.on('guildCreate', async (guild) => {
