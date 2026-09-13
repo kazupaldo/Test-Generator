@@ -4,6 +4,7 @@ import { buildPanel } from '../lib/ui.js';
 import { generateAccount } from '../lib/generation.js';
 import { describeDirectMessageError } from '../lib/delivery.js';
 import { deliverAccount } from '../lib/account-delivery.js';
+import { recordGeneration } from '../lib/statistics.js';
 
 export default {
   name: 'generate',
@@ -24,6 +25,7 @@ export default {
       guildId: message.guildId,
       fallbackChannel: message.channel,
     });
+    recordGeneration(message.guildId, type, 'generated');
 
     try {
       const result = await deliverAccount({
@@ -33,8 +35,13 @@ export default {
         user: message.author,
         type,
         payload,
+        account: payload.account,
+        voice: payload.voice,
+        ownerId: message.author.id,
         context: 'generate command',
       });
+      recordGeneration(message.guildId, type, result.channelSent || result.dmSent ? 'successful' : 'failed',
+        result.channelSent ? result.channelId : null);
       if (result.mode === 'both') {
         if (result.dmError) {
           return `⚠️ Account posted in <#${result.channelId}> but the DM failed: ${describeDirectMessageError(result.dmError)}`;
@@ -49,6 +56,7 @@ export default {
       }
       return '📩 Account sent to your DMs.';
     } catch (err) {
+      recordGeneration(message.guildId, type, 'failed');
       if (err.deliveryResult?.dmError) {
         return `❌ ${describeDirectMessageError(err.deliveryResult.dmError)}`;
       }

@@ -1,11 +1,12 @@
 import { EmbedBuilder } from 'discord.js';
 import { getPrices } from '../bloxgen.js';
 import { COLORS } from '../config.js';
+import { getUserApiKey } from '../lib/api-keys.js';
 
 export default {
   name: 'prices',
-  async execute() {
-    const data = await getPrices();
+  async execute({ message }) {
+    const data = await getPrices(getUserApiKey(message?.author?.id));
     const lines = Object.entries(data).map(([type, price]) => `\`${type}\` — $${price}`);
     const embed = new EmbedBuilder()
       .setTitle('Account prices')

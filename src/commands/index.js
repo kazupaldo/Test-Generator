@@ -13,6 +13,7 @@ import history from './history.js';
 import help from './help.js';
 import autogen from './autogen.js';
 import secure from './secure.js';
+import key from './key.js';
 
 export const commandList = [
   generate,
@@ -29,6 +30,7 @@ export const commandList = [
   help,
   autogen,
   secure,
+  key,
 ];
 
 export const commands = new Map();

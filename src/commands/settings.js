@@ -1,4 +1,4 @@
-import { PermissionFlagsBits } from 'discord.js';
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { PREFIX } from '../config.js';
 import { ACCOUNT_TYPES } from '../bloxgen.js';
 import {
@@ -27,12 +27,54 @@ export default {
         ? `\nPer-type channels: ${Object.entries(typeChannels).map(([type, id]) => `\`${type}\` → <#${id}>`).join(', ')}`
         : '';
       return `Account delivery is currently set to **${current}**.${channelText}${typeText}\n` +
-        `Use \`${PREFIX}settings dm\`, \`${PREFIX}settings server #channel\`, \`${PREFIX}settings both #channel\`, or \`${PREFIX}settings type <account type> #channel\`.`;
+        `Use \`${PREFIX}settings dm\`, \`${PREFIX}settings server #channel\`, \`${PREFIX}settings both #channel\`, \`${PREFIX}settings type <account type> #channel\`, or \`${PREFIX}settings channels\`.`;
     }
 
     // Only server managers can change delivery (server mode exposes credentials publicly).
     if (!message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
       return '❌ You need the **Manage Server** permission to change this.';
+    }
+
+    if (choice === 'channels') {
+      const typeChannels = getDeliveryChannelsByType(message.guildId);
+      const lines = ACCOUNT_TYPES.map((type) =>
+        `**${type}** → ${typeChannels[type] ? `<#${typeChannels[type]}>` : (currentChannel ? `<#${currentChannel}>` : 'not configured')}`);
+      return `📚 **Type-to-channel mappings**\n${lines.join('\n')}\n\nDelivery mode: **${current}**`;
+    }
+
+    if (choice === 'clear-type') {
+      const type = args.slice(1).join(' ').trim();
+      if (!ACCOUNT_TYPES.includes(type)) {
+        return `❌ Invalid account type. Available: ${ACCOUNT_TYPES.map((item) => `\`${item}\``).join(', ')}`;
+      }
+      setDeliveryChannelForType(message.guildId, type, null);
+      return `✅ Cleared the dedicated channel for **${type}**. It will use the default channel again.`;
+    }
+
+    if (choice === 'create-channels') {
+      if (!message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+        return '❌ I need **Manage Channels** to create the generated-account channels.';
+      }
+      const names = new Map([
+        ['alt', 'generated-alt'],
+        ['dump', 'generated-dump'],
+        ['+1 year old', 'generated-1-year'],
+        ['5+ years old', 'generated-5-years'],
+      ]);
+      const created = [];
+      for (const [type, name] of names) {
+        let channel = message.guild.channels.cache.find((item) => item.name === name && item.type === ChannelType.GuildText);
+        if (!channel) {
+          channel = await message.guild.channels.create({
+            name,
+            type: ChannelType.GuildText,
+            reason: 'BloxGen account delivery setup',
+          });
+        }
+        setDeliveryChannelForType(message.guildId, type, channel.id);
+        created.push(`<#${channel.id}>`);
+      }
+      return `✅ Generated-account channels are ready: ${created.join(', ')}`;
     }
 
     if (choice === 'type' || choice === 'type-route') {
@@ -70,7 +112,7 @@ export default {
     };
     const mode = map[choice];
     if (!mode) {
-      return `❌ Unknown option. Use \`${PREFIX}settings dm\`, \`${PREFIX}settings server #channel\`, \`${PREFIX}settings both #channel\`, or \`${PREFIX}settings type <account type> #channel\`.`;
+      return `❌ Unknown option. Use \`${PREFIX}settings dm\`, \`${PREFIX}settings server #channel\`, \`${PREFIX}settings both #channel\`, \`${PREFIX}settings channels\`, or \`${PREFIX}settings create-channels\`.`;
     }
 
     const selectedChannel = message.mentions?.channels?.first?.();

@@ -1,8 +1,9 @@
-import { EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } from 'discord.js';
 import { getHistory, getAllHistory, findAccountByUsername } from '../bloxgen-dashboard.js';
 import { checkVoiceChat } from '../roblox.js';
-import { accountActionsRow, buildAccountEmbed, buildAccountFile } from '../lib/ui.js';
+import { buildAccountPayload } from '../lib/ui.js';
 import { COLORS, PREFIX } from '../config.js';
+import { isAccountOwner } from '../lib/account-ownership.js';
 import {
   describeDirectMessageError,
   logDirectMessageError,
@@ -76,17 +77,20 @@ export async function buildHistoryPage(page = 1) {
 }
 
 // DM the same embed as a generation (username/password/cookie/voice) for one account.
-async function sendAccountDM(user, username) {
+async function sendAccountDM(user, username, message) {
+  if (!isAccountOwner(username, user.id) && !message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    return '❌ You can only view credentials for accounts you generated. Server managers can view shared history.';
+  }
   const acc = await findAccountByUsername(username);
   if (!acc) return `❌ No generated account found with username \`${username}\`.`;
   const voice = await checkVoiceChat(acc.cookie).catch(() => null);
   try {
-    const file = buildAccountFile(acc);
-    await sendDirectMessage(user, {
-      embeds: [buildAccountEmbed(acc, voice)],
-      components: [accountActionsRow(acc.type, acc.username, user.id)],
-      ...(file ? { files: [file] } : {}),
-    });
+    await sendDirectMessage(user, buildAccountPayload(acc, {
+      ownerId: user.id,
+      voice,
+      includeCredentials: true,
+      destination: 'Private DM',
+    }));
     return '📩 Account sent to your DMs.';
   } catch (err) {
     logDirectMessageError('history account lookup', user, err);
@@ -173,6 +177,9 @@ function exportUserPassCookie(accounts) {
 }
 
 async function exportHistory(message, args) {
+  if (!message.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    return '❌ Account exports require the **Manage Server** permission because they contain credentials.';
+  }
   const { type, page, format } = parseExportArgs(args);
   const data = page ? await getHistory({ page, limit: 100 }) : { history: await getAllHistory() };
   const accounts = (data?.history ?? []).filter((account) =>
@@ -229,7 +236,7 @@ export default {
 
     // +history <username>  ->  DM that account's full login (same embed as a generation).
     if (sub && !/^\d+$/.test(sub)) {
-      return sendAccountDM(message.author, sub);
+      return sendAccountDM(message.author, sub, message);
     }
 
     // +history [page]  ->  safe listing with Prev/Next buttons.
