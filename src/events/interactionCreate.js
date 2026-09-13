@@ -19,15 +19,22 @@ import {
 } from '../lib/auto-generation.js';
 import {
   accountActionsRow,
-  buildAccountEmbed,
-  buildAccountFile,
+  buildAccountPayload,
   buildAutoGenerationPanel,
 } from '../lib/ui.js';
 import { buildHistoryPage } from '../commands/history.js';
+import { buildApiKeyModal } from '../commands/key.js';
 import { commands } from '../commands/index.js';
 import { buildStockReply } from '../commands/stock.js';
 import { describeDirectMessageError, sendDirectMessage } from '../lib/delivery.js';
 import { deliverAccount } from '../lib/account-delivery.js';
+import {
+  getUserApiKey,
+  listUserApiKeys,
+  removeUserApiKey,
+  setUserApiKey,
+} from '../lib/api-keys.js';
+import { recordGeneration } from '../lib/statistics.js';
 
 // Generate from a button/menu interaction. The account is sent to DMs (or the
 // channel) so it persists; the interaction reply is just an ephemeral receipt.
@@ -45,6 +52,7 @@ async function handleGenerateInteraction(interaction, type) {
       guildId: interaction.guildId,
       fallbackChannel: interaction.channel,
     });
+    recordGeneration(interaction.guildId, type, 'generated');
 
     try {
       const result = await deliverAccount({
@@ -54,8 +62,13 @@ async function handleGenerateInteraction(interaction, type) {
         user: interaction.user,
         type,
         payload,
+        account: payload.account,
+        voice: payload.voice,
+        ownerId: interaction.user.id,
         context: 'interactive account picker',
       });
+      recordGeneration(interaction.guildId, type, result.channelSent || result.dmSent ? 'successful' : 'failed',
+        result.channelSent ? result.channelId : null);
       if (result.mode === 'both') {
         if (result.dmError) {
           await interaction.editReply(
@@ -74,6 +87,7 @@ async function handleGenerateInteraction(interaction, type) {
         await interaction.editReply('📩 Account sent to your DMs.');
       }
     } catch (err) {
+      recordGeneration(interaction.guildId, type, 'failed');
       if (err.deliveryResult?.dmError) {
         await interaction.editReply(`❌ ${describeDirectMessageError(err.deliveryResult.dmError)}`);
       } else {
@@ -162,13 +176,12 @@ async function handlePasswordChange(interaction, parsed) {
     });
 
     const updatedAccount = { ...account, password: newPassword };
-    const file = buildAccountFile(updatedAccount);
     try {
-      await sendDirectMessage(interaction.user, {
-        embeds: [buildAccountEmbed(updatedAccount)],
-        components: [accountActionsRow(updatedAccount.type, updatedAccount.username, interaction.user.id)],
-        ...(file ? { files: [file] } : {}),
-      });
+      await sendDirectMessage(interaction.user, buildAccountPayload(updatedAccount, {
+        ownerId: interaction.user.id,
+        includeCredentials: true,
+        destination: 'Private DM',
+      }));
       await interaction.editReply('✅ Password changed. I sent the updated account details to your DMs.');
     } catch (err) {
       await interaction.editReply(
@@ -177,6 +190,32 @@ async function handlePasswordChange(interaction, parsed) {
     }
   } catch (err) {
     await interaction.editReply(`❌ ${err.message || 'Could not change the password.'}`);
+  }
+}
+
+async function handleShowLogin(interaction, parsed) {
+  if (interaction.user.id !== parsed.ownerId) {
+    await interaction.reply({
+      content: '❌ Only the account recipient can view these credentials.',
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    const account = await findAccountByUsername(parsed.username);
+    if (!account) {
+      await interaction.editReply(`❌ No generated account found for \`${parsed.username}\`.`);
+      return;
+    }
+    await sendDirectMessage(interaction.user, buildAccountPayload(account, {
+      ownerId: interaction.user.id,
+      includeCredentials: true,
+      destination: 'Private DM',
+    }));
+    await interaction.editReply('📩 I sent the login details to your DMs.');
+  } catch (error) {
+    await interaction.editReply(`❌ ${error.message || 'Could not send the login details.'}`);
   }
 }
 
@@ -284,6 +323,41 @@ export async function execute(interaction) {
   try {
     if (interaction.isChatInputCommand()) {
       await handleChatInputCommand(interaction, interaction.client);
+    } else if (interaction.isButton() && interaction.customId === 'api-key-add') {
+      await interaction.showModal(buildApiKeyModal());
+    } else if (interaction.isButton() && interaction.customId === 'api-key-status') {
+      const keys = listUserApiKeys(interaction.user.id);
+      await interaction.reply({
+        content: keys.names.length
+          ? `🔐 Saved key names: ${keys.names.map((name) => `\`${name}\``).join(', ')}\nActive key: \`${keys.active}\``
+          : '🔐 No personal API keys saved yet.',
+        flags: MessageFlags.Ephemeral,
+      });
+    } else if (interaction.isButton() && interaction.customId === 'api-key-remove') {
+      const removed = removeUserApiKey(interaction.user.id);
+      await interaction.reply({
+        content: removed ? '✅ Your active personal API key was removed.' : '📭 You do not have a saved personal API key.',
+        flags: MessageFlags.Ephemeral,
+      });
+    } else if (interaction.isModalSubmit() && interaction.customId === 'api-key-submit') {
+      const value = interaction.fields.getTextInputValue('api-key-value').trim();
+      const name = interaction.fields.getTextInputValue('api-key-name').trim() || 'default';
+      try {
+        const savedName = setUserApiKey(interaction.user.id, value, name);
+        await interaction.reply({
+          content: `✅ Personal BloxGen API key \`${savedName}\` saved securely. It will be used for your commands and auto-generation.`,
+          flags: MessageFlags.Ephemeral,
+        });
+      } catch (error) {
+        await interaction.reply({ content: `❌ ${error.message}`, flags: MessageFlags.Ephemeral });
+      }
+    } else if (interaction.isButton() && interaction.customId.startsWith('account-login:')) {
+      const parsed = parsePasswordChangeId(interaction.customId, 'account-login:');
+      if (!parsed) {
+        await interaction.reply({ content: '❌ Invalid login button.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+      await handleShowLogin(interaction, parsed);
     } else if (interaction.isButton() && interaction.customId.startsWith('password-change:')) {
       const parsed = parsePasswordChangeId(interaction.customId, 'password-change:');
       if (!parsed) {
@@ -315,7 +389,7 @@ export async function execute(interaction) {
     } else if (interaction.isButton() && interaction.customId === 'stock-refresh') {
       await interaction.deferUpdate();
       try {
-        const data = await getStock();
+        const data = await getStock(getUserApiKey(interaction.user.id));
         await interaction.editReply(buildStockReply(data));
       } catch (err) {
         console.error('Live stock refresh failed:', err);
