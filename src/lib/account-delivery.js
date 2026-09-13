@@ -4,13 +4,6 @@ import {
   logDirectMessageError,
   sendDirectMessage,
 } from './delivery.js';
-import { CREDENTIAL_DELETE_AFTER_MS } from '../config.js';
-import { buildAccountPayload } from './ui.js';
-import {
-  enqueueDelivery,
-  isDelivered,
-  markDelivered,
-} from './delivery-queue.js';
 
 async function resolveChannel(client, guildId, fallbackChannel, type) {
   const configuredId = getDeliveryChannelForType(guildId, type);
@@ -26,11 +19,6 @@ async function resolveChannel(client, guildId, fallbackChannel, type) {
     );
   }
   return channel;
-}
-
-function deleteLater(message) {
-  if (!message || !CREDENTIAL_DELETE_AFTER_MS) return;
-  setTimeout(() => message.delete().catch(() => {}), CREDENTIAL_DELETE_AFTER_MS).unref?.();
 }
 
 // Validate destinations before calling BloxGen. A failed Discord delivery
@@ -67,9 +55,6 @@ export async function deliverAccount({
   user,
   type,
   payload,
-  account = null,
-  voice = null,
-  ownerId = user?.id,
   context = 'account delivery',
 }) {
   const mode = getDelivery(guildId);
@@ -86,71 +71,20 @@ export async function deliverAccount({
     try {
       const channel = await resolveChannel(client, guildId, fallbackChannel, type);
       result.channelId = channel.id;
-      const item = {
-        guildId,
-        type,
-        ownerId,
-        destination: 'channel',
-        channelId: channel.id,
-        account,
-      };
-      if (isDelivered(item)) {
-        result.channelSent = true;
-      } else {
-        const channelPayload = account
-          ? buildAccountPayload(account, { ownerId, voice, includeCredentials: false, destination: `<#${channel.id}>` })
-          : payload;
-        const message = await channel.send(channelPayload);
-        markDelivered(item);
-        deleteLater(message);
-        result.channelSent = true;
-      }
+      await channel.send(payload);
+      result.channelSent = true;
     } catch (error) {
       result.channelError = error;
-      if (account) {
-        enqueueDelivery({
-          guildId,
-          type,
-          ownerId,
-          destination: 'channel',
-          channelId: result.channelId,
-          account,
-        });
-      }
     }
   }
 
   if (mode === 'dm' || mode === 'both') {
     try {
-      const item = {
-        guildId,
-        type,
-        ownerId,
-        destination: 'dm',
-        account,
-      };
-      if (!isDelivered(item)) {
-        const dmPayload = account
-          ? buildAccountPayload(account, { ownerId, voice, includeCredentials: true, destination: 'Private DM' })
-          : payload;
-        const dmChannel = await user.createDM();
-        const message = await dmChannel.send(dmPayload);
-        markDelivered(item);
-        deleteLater(message);
-      }
+      await sendDirectMessage(user, payload);
       result.dmSent = true;
     } catch (error) {
       result.dmError = error;
       logDirectMessageError(context, user, error);
-      if (account) {
-        enqueueDelivery({
-          guildId,
-          type,
-          ownerId,
-          destination: 'dm',
-          account,
-        });
-      }
     }
   }
 

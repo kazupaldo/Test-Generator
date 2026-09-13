@@ -6,17 +6,8 @@ import {
 } from '../bloxgen.js';
 import { generateAccount } from './generation.js';
 import { getDelivery } from './settings.js';
-import {
-  getAutoGenerationConfig,
-  getConfiguredGuildIds,
-  setAutoGenerationConfig,
-} from './settings.js';
 import { deliverAccount } from './account-delivery.js';
 import { logDirectMessageError } from './delivery.js';
-import { requireUserApiKey } from './api-keys.js';
-import { recordGeneration } from './statistics.js';
-import { drainDeliveryQueue, getPendingDeliveryCount } from './delivery-queue.js';
-import { buildAutoGenerationPanel } from './ui.js';
 
 export const AUTO_GENERATION_INTERVAL_MS = 5 * 1000;
 export const AUTO_PANEL_REFRESH_INTERVAL_MS = 15 * 1000;
@@ -95,51 +86,13 @@ function isTypeCoolingDown(run, type) {
 }
 
 export function getAutoGenerationTypes(guildId) {
-  return selectedTypes.get(guildId) ??
-    normalizeTypes(getAutoGenerationConfig(guildId).types ?? DEFAULT_AUTO_GENERATION_TYPES);
+  return selectedTypes.get(guildId) ?? DEFAULT_AUTO_GENERATION_TYPES;
 }
 
 export function setAutoGenerationTypes(guildId, types) {
   if (activeRuns.has(guildId)) return false;
-  const normalized = normalizeTypes(types);
-  selectedTypes.set(guildId, normalized);
-  setAutoGenerationConfig(guildId, { types: normalized });
+  selectedTypes.set(guildId, normalizeTypes(types));
   return true;
-}
-
-export function getAutoGenerationInterval(guildId) {
-  const interval = Number(getAutoGenerationConfig(guildId).intervalMs);
-  return Number.isFinite(interval) ? Math.min(60 * 60_000, Math.max(5_000, interval)) : AUTO_GENERATION_INTERVAL_MS;
-}
-
-export function setAutoGenerationInterval(guildId, seconds) {
-  if (activeRuns.has(guildId)) return false;
-  const intervalMs = Math.min(60 * 60_000, Math.max(5_000, Number(seconds) * 1000));
-  if (!Number.isFinite(intervalMs)) return false;
-  setAutoGenerationConfig(guildId, { intervalMs });
-  return true;
-}
-
-export function setAutoGenerationPriority(guildId, types) {
-  if (activeRuns.has(guildId)) return false;
-  const normalized = normalizeTypes(types);
-  selectedTypes.set(guildId, normalized);
-  setAutoGenerationConfig(guildId, { types: normalized });
-  return true;
-}
-
-function typeStatus(run, type) {
-  const stockValue = run.stock?.[type];
-  if (!run.stock) return { type, icon: '⚪', label: 'Waiting', reason: 'Checking stock' };
-  if (!isInStock(stockValue)) return { type, icon: '⚫', label: 'Out of stock', reason: 'Unavailable' };
-  if (run.limitBlockedTypes.has(type) || !canGenerateType(run.limits, type)) {
-    return { type, icon: '🔴', label: 'Daily limit reached', reason: 'Try after reset' };
-  }
-  if (isTypeCoolingDown(run, type)) {
-    const remaining = Math.max(1, Math.ceil((run.typeCooldowns.get(type) - Date.now()) / 60_000));
-    return { type, icon: '🟡', label: `Cooldown: ${remaining}m`, reason: 'Other types can continue' };
-  }
-  return { type, icon: '🟢', label: 'In stock', reason: 'Ready' };
 }
 
 export function getAutoGenerationStatus(guildId) {
@@ -148,7 +101,7 @@ export function getAutoGenerationStatus(guildId) {
     return {
       enabled: false,
       types: getAutoGenerationTypes(guildId),
-      intervalMs: getAutoGenerationInterval(guildId),
+      intervalMs: AUTO_GENERATION_INTERVAL_MS,
       endsAt: null,
       generatedCount: 0,
       skippedCount: 0,
@@ -163,9 +116,6 @@ export function getAutoGenerationStatus(guildId) {
       remainingGenerations: null,
       limitBlockedTypes: [],
       cooldownTypes: [],
-      generatedByType: {},
-      typeStatuses: getAutoGenerationTypes(guildId).map((type) => ({ type, icon: '⚪', label: 'Waiting', reason: 'Not checked yet' })),
-      pendingDeliveries: getPendingDeliveryCount(guildId),
     };
   }
 
@@ -187,9 +137,6 @@ export function getAutoGenerationStatus(guildId) {
     remainingGenerations: run.limits?.remainingGenerations ?? null,
     limitBlockedTypes: [...run.limitBlockedTypes.keys()],
     cooldownTypes: [...run.typeCooldowns.keys()],
-    generatedByType: { ...run.generatedByType },
-    typeStatuses: run.types.map((type) => typeStatus(run, type)),
-    pendingDeliveries: getPendingDeliveryCount(guildId),
   };
 }
 
@@ -204,9 +151,6 @@ async function deliverGeneratedAccount(client, run, payload, user, type) {
     user,
     type,
     payload,
-    account: payload.account,
-    voice: payload.voice,
-    ownerId: run.userId,
     context: 'auto-generation',
   });
 }
@@ -223,23 +167,9 @@ function refreshPanel(run, force = false) {
     });
 }
 
-async function sendHealthAlert(client, run, reason) {
-  if (run.lastAlertReason === reason) return;
-  run.lastAlertReason = reason;
-  const channel = await client.channels.fetch(run.channelId).catch(() => null);
-  if (!channel?.isTextBased()) return;
-  await channel.send(`⚠️ **Auto-generation health alert:** ${reason}\nSelected types: ${run.types.join(', ')}`).catch(() => {});
-}
-
 async function generateNext(client, run) {
   if (run.generating || activeRuns.get(run.guildId) !== run) return;
   if (Date.now() < run.cooldownUntil) return;
-  await drainDeliveryQueue(client, { guildId: run.guildId });
-  if (getPendingDeliveryCount(run.guildId) > 0) {
-    run.waitingReason = 'Waiting for queued account delivery before generating another account.';
-    refreshPanel(run);
-    return;
-  }
   run.generating = true;
   run.attemptCount++;
   let attemptedType = null;
@@ -247,8 +177,7 @@ async function generateNext(client, run) {
   try {
     // Both checks happen immediately before every paid generation. A type at
     // its limit is skipped and the next stocked type is tried instead.
-    const apiKey = requireUserApiKey(run.userId);
-    const [stock, limits] = await Promise.all([getStock(apiKey), getDailyLimit(apiKey)]);
+    const [stock, limits] = await Promise.all([getStock(), getDailyLimit()]);
     run.stock = stock;
     run.limits = limits;
     run.lastStockCheckAt = Date.now();
@@ -268,7 +197,6 @@ async function generateNext(client, run) {
     if (!stockedTypes.length) {
       run.waitingReason = null;
       run.skippedCount++;
-      await sendHealthAlert(client, run, 'All selected account types are out of stock.');
       console.log(`Auto-generation skipped for guild ${run.guildId}: no selected types are in stock.`);
       refreshPanel(run, true);
       return;
@@ -277,7 +205,6 @@ async function generateNext(client, run) {
     if (!limitAvailableTypes.length) {
       run.waitingReason = null;
       run.skippedCount++;
-      await sendHealthAlert(client, run, 'All selected account types have reached their daily limit.');
       console.log(`Auto-generation skipped for guild ${run.guildId}: all stocked selected types are at their daily limit.`);
       refreshPanel(run, true);
       return;
@@ -286,7 +213,6 @@ async function generateNext(client, run) {
     if (!availableTypes.length) {
       run.waitingReason = null;
       run.skippedCount++;
-      await sendHealthAlert(client, run, 'All eligible account types are cooling down.');
       console.log(`Auto-generation skipped for guild ${run.guildId}: all eligible stocked types are on cooldown.`);
       refreshPanel(run, true);
       return;
@@ -304,29 +230,34 @@ async function generateNext(client, run) {
       fallbackChannel: await client.channels.fetch(run.channelId).catch(() => null),
       preflight: { stock, limits },
     });
-    recordGeneration(run.guildId, type, 'generated');
-    run.generatedCount++;
-    run.generatedByType[type] = (run.generatedByType[type] ?? 0) + 1;
-    run.lastType = type;
-    run.lastGeneratedAt = Date.now();
     const delivery = await deliverGeneratedAccount(client, run, payload, user, type);
 
-    run.lastError = null;
-    run.lastAlertReason = null;
-    recordGeneration(run.guildId, type, delivery.channelSent || delivery.dmSent ? 'successful' : 'failed',
-      delivery.channelSent ? delivery.channelId : null);
-    if (delivery.channelError || delivery.dmError) {
-      run.waitingReason = 'A delivery destination failed; retrying from the durable queue.';
+    if (delivery.mode === 'both' && (delivery.channelError || delivery.dmError)) {
+      if (delivery.dmError) logDirectMessageError('auto-generation', user, delivery.dmError);
+      await disableAutoGeneration(run.guildId, { refresh: true });
+      console.error(`Auto-generation stopped for guild ${run.guildId}: one of the required delivery destinations failed.`);
+      return;
     }
+
+    run.generatedCount++;
+    run.lastType = type;
+    run.lastGeneratedAt = Date.now();
+    run.lastError = null;
     console.log(`Auto-generated ${type} for guild ${run.guildId}.`);
     refreshPanel(run, true);
   } catch (err) {
-    if (err.deliveryResult?.channelError || err.deliveryResult?.dmError) {
-      run.waitingReason = 'Delivery failed; the account is saved in the retry queue.';
-      run.lastError = err.message;
-      run.skippedCount++;
-      refreshPanel(run, true);
-      console.error(`Auto-generation queued a delivery retry for guild ${run.guildId}:`, err.message);
+    if (err.deliveryResult?.channelError) {
+      await disableAutoGeneration(run.guildId, { refresh: true });
+      console.error(
+        `Auto-generation stopped for guild ${run.guildId}: channel delivery failed:`,
+        err.deliveryResult.channelError.message,
+      );
+      return;
+    }
+
+    if (getDelivery(run.guildId) !== 'server' && err?.code === 50007) {
+      await disableAutoGeneration(run.guildId, { refresh: true });
+      console.error(`Auto-generation stopped for guild ${run.guildId}: DMs are blocked for the account recipient.`);
       return;
     }
 
@@ -365,7 +296,6 @@ async function generateNext(client, run) {
     run.waitingReason = null;
     run.lastError = err.message;
     run.skippedCount++;
-    recordGeneration(run.guildId, attemptedType || 'unknown', err.isDailyLimit ? 'skipped' : 'failed');
     console.error(`Auto-generation skipped for guild ${run.guildId}:`, err.message);
     refreshPanel(run, true);
   } finally {
@@ -380,7 +310,6 @@ export async function disableAutoGeneration(guildId, { refresh = false } = {}) {
   clearInterval(run.interval);
   clearInterval(run.panelInterval);
   activeRuns.delete(guildId);
-  setAutoGenerationConfig(guildId, { enabled: false });
 
   if (refresh) {
     await run.refresh?.().catch((err) => {
@@ -405,13 +334,12 @@ export function enableAutoGeneration(client, {
     channelId,
     controlMessage,
     types,
-    intervalMs: getAutoGenerationInterval(guildId),
+    intervalMs: AUTO_GENERATION_INTERVAL_MS,
     endsAt: null,
     nextTypeIndex: 0,
     generating: false,
     cooldownUntil: 0,
     generatedCount: 0,
-    generatedByType: {},
     skippedCount: 0,
     attemptCount: 0,
     lastType: null,
@@ -419,7 +347,6 @@ export function enableAutoGeneration(client, {
     lastStockCheckAt: null,
     lastLimitCheckAt: null,
     lastError: null,
-    lastAlertReason: null,
     waitingReason: null,
     refreshing: false,
     lastPanelRefreshAt: 0,
@@ -438,14 +365,6 @@ export function enableAutoGeneration(client, {
   run.panelInterval = setInterval(() => refreshPanel(run, true), AUTO_PANEL_REFRESH_INTERVAL_MS);
 
   activeRuns.set(guildId, run);
-  setAutoGenerationConfig(guildId, {
-    enabled: true,
-    types,
-    intervalMs: run.intervalMs,
-    userId,
-    controlChannelId: channelId,
-    controlMessageId: controlMessage?.id ?? null,
-  });
 
   // Generate once immediately, then continue every 5 seconds until disabled.
   void generateNext(client, run);
@@ -455,25 +374,4 @@ export function enableAutoGeneration(client, {
 export function setAutoGenerationRefresh(guildId, refresh) {
   const run = activeRuns.get(guildId);
   if (run) run.refresh = refresh;
-}
-
-export async function restoreAutoGenerationRuns(client) {
-  for (const guildId of getConfiguredGuildIds()) {
-    const config = getAutoGenerationConfig(guildId);
-    if (!config.enabled || activeRuns.has(guildId)) continue;
-    let controlMessage = null;
-    if (config.controlChannelId && config.controlMessageId) {
-      const channel = await client.channels.fetch(config.controlChannelId).catch(() => null);
-      controlMessage = await channel?.messages?.fetch(config.controlMessageId).catch(() => null);
-    }
-    enableAutoGeneration(client, {
-      guildId,
-      userId: config.userId,
-      channelId: config.controlChannelId,
-      controlMessage,
-    });
-    if (controlMessage) {
-      setAutoGenerationRefresh(guildId, () => controlMessage.edit(buildAutoGenerationPanel(guildId)));
-    }
-  }
 }

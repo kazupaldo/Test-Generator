@@ -10,17 +10,15 @@ import {
 import { ACCOUNT_TYPES } from '../bloxgen.js';
 import { COLORS } from '../config.js';
 import {
+  AUTO_GENERATION_INTERVAL_MS,
   AUTO_GENERATION_TYPES,
-  getAutoGenerationInterval,
   getAutoGenerationStatus,
   getAutoGenerationTypes,
 } from './auto-generation.js';
-import { getDailyStats } from './statistics.js';
-import { getPendingDeliveryCount } from './delivery-queue.js';
 
 // Embed shown for a generated account. `voice` (optional) comes from the Roblox
 // voice settings API: { enabled, verified } or null if the lookup failed.
-export function buildAccountEmbed(acc, voice, { includeCredentials = false, destination = null } = {}) {
+export function buildAccountEmbed(acc, voice) {
   const hasValue = (value) => {
     if (value === undefined || value === null || value === '') return false;
     return !['unknown', 'n/a', 'null', 'undefined'].includes(String(value).trim().toLowerCase());
@@ -55,7 +53,7 @@ export function buildAccountEmbed(acc, voice, { includeCredentials = false, dest
   const ageGroup = valueOf('estimated_age_group', 'estimatedAgeGroup');
   const descriptionLines = [
     `**Username:** ${inline(acc.username)}`,
-    `**Password:** ${includeCredentials ? inline(acc.password) : '🔒 Hidden — use **Show login** to receive it privately'}`,
+    `**Password:** ${inline(acc.password)}`,
   ];
 
   if (hasValue(userId)) descriptionLines.push(`**User identifier:** ${inline(userId)}`);
@@ -88,7 +86,7 @@ export function buildAccountEmbed(acc, voice, { includeCredentials = false, dest
     .setFooter({ text: 'Contact - Generator' })
     .setTimestamp();
   if (acc.avatarUrl) embed.setThumbnail(acc.avatarUrl);
-  if (includeCredentials && acc.cookie) {
+  if (acc.cookie) {
     const cookie = String(acc.cookie);
     const cookieValue = `\`\`\`\n${cookie}\n\`\`\``;
     embed.addFields({
@@ -97,15 +95,6 @@ export function buildAccountEmbed(acc, voice, { includeCredentials = false, dest
         ? cookieValue
         : 'The cookie is included in the attached private account file.',
     });
-  }
-  if (!includeCredentials) {
-    embed.addFields({
-      name: 'Credential protection',
-      value: 'Password and cookie are hidden in public messages. Use **Show login** to receive credentials by DM.',
-    });
-  }
-  if (destination) {
-    embed.addFields({ name: 'Destination', value: destination, inline: true });
   }
   return embed;
 }
@@ -120,20 +109,6 @@ export function buildAccountFile(acc) {
   return new AttachmentBuilder(Buffer.from(contents, 'utf8'), {
     name: `bloxgen-${String(acc.username || 'account').replace(/[^a-z0-9_-]/gi, '_')}.txt`,
   });
-}
-
-export function buildAccountPayload(acc, {
-  ownerId,
-  includeCredentials = false,
-  voice = null,
-  destination = null,
-} = {}) {
-  const file = includeCredentials ? buildAccountFile(acc) : null;
-  return {
-    embeds: [buildAccountEmbed(acc, voice, { includeCredentials, destination })],
-    components: [accountActionsRow(acc.type, acc.username, ownerId)],
-    ...(file ? { files: [file] } : {}),
-  };
 }
 
 // A "Generate again" button that regenerates the same type.
@@ -157,13 +132,6 @@ export function accountActionsRow(type, username, ownerId) {
   );
 
   if (username && ownerId) {
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`account-login:${ownerId}:${encodeURIComponent(username)}`)
-        .setLabel('Show login')
-        .setEmoji('🔑')
-        .setStyle(ButtonStyle.Primary),
-    );
     row.addComponents(passwordChangeButton(username, ownerId));
   }
   return row;
@@ -209,7 +177,6 @@ function formatDuration(ms) {
 export function buildAutoGenerationPanel(guildId) {
   const status = getAutoGenerationStatus(guildId);
   const selected = getAutoGenerationTypes(guildId);
-  const dailyStats = getDailyStats(guildId);
   const statusText = status.enabled
     ? status.waitingReason
       ? `Enabled. ${status.waitingReason}`
@@ -221,7 +188,7 @@ export function buildAutoGenerationPanel(guildId) {
     .setTitle('Auto-generation')
     .setDescription(
       `${statusText}\n\n` +
-       `Generates immediately, then one account every **${formatDuration(getAutoGenerationInterval(guildId))}** until disabled.\n` +
+      `Generates immediately, then one account every **${formatDuration(AUTO_GENERATION_INTERVAL_MS)}** until disabled.\n` +
       'Before each cycle, the bot refreshes stock and daily limits, skips unavailable or limited categories, then checks again on the next cycle.\n' +
       'Accounts follow the server’s current DM, channel, or DM + channel delivery setting.',
     )
@@ -235,7 +202,7 @@ export function buildAutoGenerationPanel(guildId) {
     embed.addFields(
       {
         name: '📊 Run totals',
-        value: `Generated: **${status.generatedCount}**\nSkipped/checks: **${status.skippedCount}**\nAttempts: **${status.attemptCount}**\nRetry queue: **${status.pendingDeliveries ?? 0}**`,
+        value: `Generated: **${status.generatedCount}**\nSkipped/checks: **${status.skippedCount}**\nAttempts: **${status.attemptCount}**`,
         inline: true,
       },
       {
@@ -250,30 +217,6 @@ export function buildAutoGenerationPanel(guildId) {
       },
     );
   }
-
-  const typeLines = (status.typeStatuses ?? status.types.map((type) => ({
-    type,
-    icon: '⚪',
-    label: 'Waiting',
-    reason: 'Not checked yet',
-  }))).map((item) => {
-    const count = status.generatedByType?.[item.type] ?? dailyStats.byType?.[item.type]?.generated ?? 0;
-    return `${item.icon} **${item.type}** — ${item.label}${item.reason ? ` · ${item.reason}` : ''} · **${count} generated**`;
-  });
-  embed.addFields({
-    name: '📦 Per-type status & counters',
-    value: typeLines.join('\n').slice(0, 1024) || 'No account types selected.',
-    inline: false,
-  });
-  const mostUsed = Object.entries(dailyStats.byType ?? {})
-    .sort(([, left], [, right]) => (right.generated ?? 0) - (left.generated ?? 0))[0]?.[0] ?? '—';
-  const mostSuccessfulChannel = Object.entries(dailyStats.byChannel ?? {})
-    .sort(([, left], [, right]) => right - left)[0]?.[0];
-  embed.addFields({
-    name: '📈 Today',
-    value: `Generated: **${dailyStats.generated}** · Successful: **${dailyStats.successful}** · Skipped: **${dailyStats.skipped}** · Failed: **${dailyStats.failed}**\nMost used type: **${mostUsed}** · Most successful channel: ${mostSuccessfulChannel ? `<#${mostSuccessfulChannel}>` : '—'}`,
-    inline: false,
-  });
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId('autogen-types')

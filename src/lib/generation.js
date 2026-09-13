@@ -6,21 +6,19 @@ import {
   getStock,
 } from '../bloxgen.js';
 import { checkVoiceChat } from '../roblox.js';
-import { buildAccountPayload } from './ui.js';
+import { accountActionsRow, buildAccountEmbed, buildAccountFile } from './ui.js';
 import { logGeneration } from './logger.js';
 import { ensureDeliveryReady } from './account-delivery.js';
-import { requireUserApiKey } from './api-keys.js';
-import { recordAccountOwner } from './account-ownership.js';
 
 function inStock(stock, type) {
   const value = stock?.[type];
   return value === true || value?.available === true;
 }
 
-async function verifyGenerationEligibility(type, preflight, apiKey) {
+async function verifyGenerationEligibility(type, preflight) {
   const { stock, limits } = preflight ?? await Promise.all([
-    getStock(apiKey),
-    getDailyLimit(apiKey),
+    getStock(),
+    getDailyLimit(),
   ]).then(([nextStock, nextLimits]) => ({ stock: nextStock, limits: nextLimits }));
 
   if (!inStock(stock, type)) {
@@ -50,16 +48,15 @@ export async function generateAccount(client, {
   fallbackChannel,
   preflight,
 }) {
-  const apiKey = requireUserApiKey(user?.id);
   await ensureDeliveryReady({ client, guildId, fallbackChannel, user, type });
-  await verifyGenerationEligibility(type, preflight, apiKey);
-  const acc = await generate(type, apiKey);
-  recordAccountOwner(acc.username, user?.id, guildId);
+  await verifyGenerationEligibility(type, preflight);
+  const acc = await generate(type);
   const voice = await checkVoiceChat(acc.cookie); // null if the lookup fails
   await logGeneration(client, { user, type, acc, guildId });
+  const file = buildAccountFile(acc);
   return {
-    ...buildAccountPayload(acc, { ownerId: user?.id, voice, includeCredentials: false }),
-    account: acc,
-    voice,
+    embeds: [buildAccountEmbed(acc, voice)],
+    components: [accountActionsRow(type, acc.username, user?.id)],
+    ...(file ? { files: [file] } : {}),
   };
 }

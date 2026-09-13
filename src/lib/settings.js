@@ -58,25 +58,6 @@ export function setDeliveryChannelForType(guildId, type, channelId) {
   update(guildId, { deliveryChannels });
 }
 
-export function getAutoGenerationConfig(guildId) {
-  if (!guildId) return {};
-  return { ...(cache[guildId]?.autoGeneration ?? {}) };
-}
-
-export function setAutoGenerationConfig(guildId, patch) {
-  if (!guildId) return;
-  update(guildId, {
-    autoGeneration: {
-      ...(cache[guildId]?.autoGeneration ?? {}),
-      ...patch,
-    },
-  });
-}
-
-export function getConfiguredGuildIds() {
-  return Object.keys(cache);
-}
-
 // Channel ID where generations are logged for this server (null = none set).
 export function getLogChannel(guildId) {
   if (!guildId) return null;
