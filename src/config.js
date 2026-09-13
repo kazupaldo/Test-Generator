@@ -8,10 +8,15 @@ dotenv.config({ path: join(ROOT, '.env') });
 
 export const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 export const BLOXGEN_API_KEY = process.env.BLOXGEN_API_KEY;
+export const SESSION_SECRET = process.env.SESSION_SECRET;
 // Dashboard session cookie (accessToken) for the account-history endpoint. ~7-day lifetime.
 export const BLOXGEN_SESSION_COOKIE = process.env.BLOXGEN_SESSION_COOKIE;
 export const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID;
 export const PREFIX = process.env.PREFIX || '+';
+export const CREDENTIAL_DELETE_AFTER_MS = Math.max(
+  0,
+  Number(process.env.CREDENTIAL_DELETE_AFTER_MS) || 0,
+);
 
 // Brand colors used across embeds.
 export const COLORS = {

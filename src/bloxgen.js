@@ -115,18 +115,21 @@ export function canGenerateType(snapshot, type) {
   return !typeLimit || typeLimit.canGenerate;
 }
 
-async function request(path, { method = 'GET', body } = {}) {
+async function request(path, { method = 'GET', body, apiKey = BLOXGEN_API_KEY } = {}) {
+  if (!apiKey) {
+    throw new Error('No BloxGen API key is configured. Add your personal key with +key before generating.');
+  }
   // Some endpoints ignore the X-API-Key header (e.g. /api/generate,
   // /api/botting/check), so send the key everywhere: header, query, and body.
   const url = new URL(`${BASE_URL}${path}`);
-  url.searchParams.set('apiKey', BLOXGEN_API_KEY);
+  url.searchParams.set('apiKey', apiKey);
 
-  const payload = body ? { apiKey: BLOXGEN_API_KEY, ...body } : undefined;
+  const payload = body ? { apiKey, ...body } : undefined;
 
   const res = await fetch(url, {
     method,
     headers: {
-      'X-API-Key': BLOXGEN_API_KEY,
+      'X-API-Key': apiKey,
       ...(payload ? { 'Content-Type': 'application/json' } : {}),
     },
     body: payload ? JSON.stringify(payload) : undefined,
@@ -152,38 +155,38 @@ async function request(path, { method = 'GET', body } = {}) {
 }
 
 // POST /api/generate -> { username, password, cookie, type, cost, id, region, ... }
-export function generate(type) {
-  return request('/api/generate', { method: 'POST', body: { type } });
+export function generate(type, apiKey) {
+  return request('/api/generate', { method: 'POST', body: { type }, apiKey });
 }
 
 // GET /api/balance -> { balance }
-export function getBalance() {
-  return request('/api/balance');
+export function getBalance(apiKey) {
+  return request('/api/balance', { apiKey });
 }
 
 // GET /api/botting/check -> { userid, max_followers, available, ... }
-export function checkFollowers(userid) {
-  return request(`/api/botting/check?userid=${encodeURIComponent(userid)}`);
+export function checkFollowers(userid, apiKey) {
+  return request(`/api/botting/check?userid=${encodeURIComponent(userid)}`, { apiKey });
 }
 
 // GET /api/stock -> { "<type>": true|false, ... } (in stock per type)
-export function getStock() {
-  return request('/api/stock');
+export function getStock(apiKey) {
+  return request('/api/stock', { apiKey });
 }
 
 // GET /api/prices -> { "<type>": number, ... } (price per type)
-export function getPrices() {
-  return request('/api/prices');
+export function getPrices(apiKey) {
+  return request('/api/prices', { apiKey });
 }
 
 // GET /api/daily-limit -> { generationsToday, remainingGenerations, dailyLimit, resetTime, accountTypes[] }
-export function getDailyLimit() {
-  return request('/api/daily-limit').then(normalizeDailyLimit);
+export function getDailyLimit(apiKey) {
+  return request('/api/daily-limit', { apiKey }).then(normalizeDailyLimit);
 }
 
 // GET /api/botting/status -> { bottingServer: { available, status }, service }
-export function getBottingStatus() {
-  return request('/api/botting/status');
+export function getBottingStatus(apiKey) {
+  return request('/api/botting/status', { apiKey });
 }
 
 // GET /health -> { status: "ok" } (no auth, no success/data envelope)

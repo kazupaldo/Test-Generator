@@ -17,6 +17,7 @@ const descriptions = {
   help: 'Show the command guide',
   autogen: 'Open the continuous auto-generation panel',
   secure: 'Open a private password security action',
+  key: 'Add or manage your personal BloxGen API keys',
 };
 
 function base(name) {
@@ -159,6 +160,7 @@ function buildCommand(name) {
       }
       break;
     case 'panel':
+    case 'key':
     case 'balance':
     case 'stock':
     case 'prices':
