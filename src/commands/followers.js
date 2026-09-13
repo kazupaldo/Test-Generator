@@ -1,17 +1,16 @@
 import { EmbedBuilder } from 'discord.js';
 import { checkFollowers } from '../bloxgen.js';
 import { PREFIX, COLORS } from '../config.js';
-import { getUserApiKey } from '../lib/api-keys.js';
 
 export default {
   name: 'followers',
-  async execute({ args, message }) {
+  async execute({ args }) {
     const userid = args.join(' ').trim();
     if (!userid) {
       return `Usage: \`${PREFIX}followers <roblox username or id>\``;
     }
 
-    const data = await checkFollowers(userid, getUserApiKey(message?.author?.id));
+    const data = await checkFollowers(userid);
     const embed = new EmbedBuilder()
       .setTitle('Followers availability')
       .setColor(data.available ? COLORS.success : COLORS.error)

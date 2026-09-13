@@ -1,7 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { getStock } from '../bloxgen.js';
 import { COLORS } from '../config.js';
-import { getUserApiKey } from '../lib/api-keys.js';
 
 function isInStock(value) {
   return value === true || value?.available === true;
@@ -34,8 +33,8 @@ export function buildStockReply(data) {
 
 export default {
   name: 'stock',
-  async execute({ message }) {
-    const data = await getStock(getUserApiKey(message?.author?.id));
+  async execute() {
+    const data = await getStock();
     return buildStockReply(data);
   },
 };

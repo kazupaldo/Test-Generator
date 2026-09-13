@@ -1,17 +1,16 @@
 import { EmbedBuilder } from 'discord.js';
 import { getHealth, getBottingStatus, getBalance } from '../bloxgen.js';
 import { COLORS } from '../config.js';
-import { getUserApiKey } from '../lib/api-keys.js';
 
 export default {
   name: 'status',
   aliases: ['ping'],
-  async execute({ message }) {
+  async execute() {
     // Fetch everything in parallel; failures degrade gracefully to "unknown".
     const [health, botting, balance] = await Promise.allSettled([
       getHealth(),
-      getBottingStatus(getUserApiKey(message?.author?.id)),
-      getBalance(getUserApiKey(message?.author?.id)),
+      getBottingStatus(),
+      getBalance(),
     ]);
 
     const apiOk = health.status === 'fulfilled' && health.value.ok;

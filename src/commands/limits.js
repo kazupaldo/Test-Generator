@@ -1,12 +1,11 @@
 import { EmbedBuilder } from 'discord.js';
 import { getDailyLimit } from '../bloxgen.js';
 import { COLORS } from '../config.js';
-import { getUserApiKey } from '../lib/api-keys.js';
 
 export default {
   name: 'limits',
-  async execute({ message }) {
-    const data = await getDailyLimit(getUserApiKey(message?.author?.id));
+  async execute() {
+    const data = await getDailyLimit();
     const total = data.dailyLimit == null
       ? `Used today: **${data.generationsToday ?? 'unknown'}**`
       : `Total today: **${data.generationsToday ?? 0}/${data.dailyLimit}**`;
