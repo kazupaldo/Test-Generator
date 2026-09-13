@@ -10,7 +10,6 @@ import {
 import { ACCOUNT_TYPES } from '../bloxgen.js';
 import { COLORS } from '../config.js';
 import {
-  AUTO_GENERATION_DURATION_MS,
   AUTO_GENERATION_INTERVAL_MS,
   AUTO_GENERATION_TYPES,
   getAutoGenerationStatus,
@@ -20,65 +19,54 @@ import {
 // Embed shown for a generated account. `voice` (optional) comes from the Roblox
 // voice settings API: { enabled, verified } or null if the lookup failed.
 export function buildAccountEmbed(acc, voice) {
+  const hasValue = (value) => {
+    if (value === undefined || value === null || value === '') return false;
+    return !['unknown', 'n/a', 'null', 'undefined'].includes(String(value).trim().toLowerCase());
+  };
   const valueOf = (...keys) => {
     for (const key of keys) {
-      if (acc[key] !== undefined && acc[key] !== null && acc[key] !== '') return acc[key];
+      if (hasValue(acc[key])) return acc[key];
     }
     return null;
   };
-  const show = (value, fallback = 'unknown') => {
-    if (value === undefined || value === null || value === '') return fallback;
+  const show = (value, fallback = '—') => {
+    if (!hasValue(value)) return fallback;
     return String(value)
       .replaceAll('\r', ' ')
       .replaceAll('\n', ' ')
       .replaceAll('`', 'ˋ')
       .slice(0, 900);
   };
-  const inline = (value, fallback = 'unknown') => `\`${show(value, fallback)}\``;
+  const inline = (value, fallback = '—') => `\`${show(value, fallback)}\``;
   const showBoolean = (value) => {
-    if (value === undefined || value === null || value === '') return 'unknown';
     return value === true || value === 'true' ? 'Yes' : 'No';
   };
   const formatDate = (value) => {
-    if (!value) return 'unknown';
     const timestamp = Date.parse(value);
     if (Number.isNaN(timestamp)) return show(value);
     return new Date(timestamp).toISOString().slice(0, 10);
   };
-  const formatInventory = (value) => {
-    if (!Array.isArray(value)) return show(value);
-    if (!value.length) return '0';
-    return value
-      .map((item) => typeof item === 'object' ? item.name ?? item.Name ?? 'item' : item)
-      .join(', ')
-      .replaceAll('`', 'ˋ')
-      .slice(0, 850);
-  };
-
   const userId = valueOf('id', 'userId', 'userid');
   const displayName = valueOf('displayName', 'display_name') ?? acc.username;
   const createdAt = valueOf('accountCreatedAt', 'account_created_at', 'createdAt', 'created_at');
-  const banned = valueOf('banned', 'banned_status', 'isBanned');
-  const friends = valueOf('friendsCount', 'friends_count', 'friends');
-  const followers = valueOf('followersCount', 'followers_count', 'followers');
-  const inventory = valueOf('inventoryItems', 'inventory_items', 'inventory');
   const age = valueOf('estimated_age', 'estimatedAge');
   const ageGroup = valueOf('estimated_age_group', 'estimatedAgeGroup');
   const descriptionLines = [
     `**Username:** ${inline(acc.username)}`,
     `**Password:** ${inline(acc.password)}`,
-    `**User identifier:** ${inline(userId)}`,
-    `**Display name:** ${inline(displayName)}`,
-    `**Account creation date:** ${formatDate(createdAt)}`,
-    `**Region:** ${show(acc.region, 'not available')}`,
-    `**Email verified:** ${showBoolean(acc.email_verified)}`,
-    `**Age verified:** ${showBoolean(acc.age_verified)}`,
-    `**Estimated age:** ${age == null ? 'unknown' : `${show(age)}${ageGroup ? ` (${show(ageGroup)})` : ''}`}`,
-    `**Banned status:** ${showBoolean(banned)}`,
-    `**Friends count:** ${show(friends, 'unknown')}`,
-    `**Followers count:** ${show(followers, 'unknown')}`,
-    `**Inventory items${Array.isArray(inventory) ? ` (${inventory.length})` : ''}:** ${formatInventory(inventory)}`,
   ];
+
+  if (hasValue(userId)) descriptionLines.push(`**User identifier:** ${inline(userId)}`);
+  if (hasValue(displayName)) descriptionLines.push(`**Display name:** ${inline(displayName)}`);
+  if (hasValue(createdAt)) descriptionLines.push(`**Account creation date:** ${formatDate(createdAt)}`);
+  if (hasValue(acc.region)) descriptionLines.push(`**Region:** ${show(acc.region)}`);
+  if (hasValue(acc.email_verified)) descriptionLines.push(`**Email verified:** ${showBoolean(acc.email_verified)}`);
+  if (hasValue(acc.age_verified)) descriptionLines.push(`**Age verified:** ${showBoolean(acc.age_verified)}`);
+  if (hasValue(age)) {
+    descriptionLines.push(
+      `**Estimated age:** ${show(age)}${hasValue(ageGroup) ? ` (${show(ageGroup)})` : ''}`,
+    );
+  }
 
   if (acc.cost != null) descriptionLines.push(`**Cost:** ${show(`$${acc.cost}`)}`);
   if (acc.robux != null) descriptionLines.push(`**Robux:** ${show(acc.robux)}`);
@@ -134,6 +122,33 @@ export function generateAgainRow(type) {
   );
 }
 
+export function accountActionsRow(type, username, ownerId) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`gen-again:${type}`)
+      .setLabel('Generate again')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+  if (username && ownerId) {
+    row.addComponents(passwordChangeButton(username, ownerId));
+  }
+  return row;
+}
+
+function passwordChangeButton(username, ownerId) {
+  return new ButtonBuilder()
+    .setCustomId(`password-change:${ownerId}:${encodeURIComponent(username)}`)
+    .setLabel('Change password')
+    .setEmoji('🔐')
+    .setStyle(ButtonStyle.Secondary);
+}
+
+export function passwordChangeRow(username, ownerId) {
+  return new ActionRowBuilder().addComponents(passwordChangeButton(username, ownerId));
+}
+
 // The dropdown panel to pick an account type.
 export function buildPanel() {
   const embed = new EmbedBuilder()
@@ -162,11 +177,10 @@ function formatDuration(ms) {
 export function buildAutoGenerationPanel(guildId) {
   const status = getAutoGenerationStatus(guildId);
   const selected = getAutoGenerationTypes(guildId);
-  const remaining = status.endsAt ? Math.max(0, status.endsAt - Date.now()) : AUTO_GENERATION_DURATION_MS;
   const statusText = status.enabled
-    ? status.pausedReason
-      ? `Enabled but paused: ${status.pausedReason} Approximately **${formatDuration(remaining)}** remain.`
-      : `Enabled. Smart generate is selecting the next stocked type under its daily limit. Approximately **${formatDuration(remaining)}** remain.`
+    ? status.waitingReason
+      ? `Enabled. ${status.waitingReason} The bot keeps checking automatically and continues when an eligible type is available.`
+      : 'Enabled. Smart generation is selecting the next stocked type under its daily limit and will continue until an admin presses **Disable**.'
     : 'Disabled. Nothing will be generated until an admin presses **Enable**.';
 
   const embed = new EmbedBuilder()
@@ -174,8 +188,8 @@ export function buildAutoGenerationPanel(guildId) {
     .setTitle('Auto-generation')
     .setDescription(
       `${statusText}\n\n` +
-      `Generates immediately, then one account every **${formatDuration(AUTO_GENERATION_INTERVAL_MS)}** for up to **24 hours**.\n` +
-      'Before each attempt, the bot refreshes stock and daily limits, skips unavailable or limited categories, and resumes automatically when stock returns or limits reset.\n' +
+      `Generates immediately, then one account every **${formatDuration(AUTO_GENERATION_INTERVAL_MS)}** until disabled.\n` +
+      'Before each attempt, the bot refreshes stock and daily limits, skips unavailable or limited categories, and keeps checking until stock returns or limits reset.\n' +
       'Accounts follow the server’s current DM, channel, or DM + channel delivery setting.',
     )
     .addFields({
@@ -193,7 +207,7 @@ export function buildAutoGenerationPanel(guildId) {
       },
       {
         name: '🔄 Automatic checks',
-        value: `Stock: **${status.stockAvailableCount ?? '?'}/${status.selectedTypeCount}** selected in stock\nDaily remaining: **${status.remainingGenerations ?? 'unknown'}**\nLast refresh: ${status.lastStockCheckAt ? `<t:${Math.floor(status.lastStockCheckAt / 1000)}:R>` : '—'}`,
+        value: `Stock: **${status.stockAvailableCount ?? '?'}/${status.selectedTypeCount}** selected in stock\nDaily remaining: **${status.remainingGenerations ?? 'unknown'}**\nLimit-blocked: **${status.limitBlockedTypes?.length ? status.limitBlockedTypes.join(', ') : 'none'}**\nLast refresh: ${status.lastStockCheckAt ? `<t:${Math.floor(status.lastStockCheckAt / 1000)}:R>` : '—'}`,
         inline: true,
       },
       {
