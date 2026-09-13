@@ -34,10 +34,28 @@ export function getDeliveryChannel(guildId) {
   return cache[guildId]?.deliveryChannel ?? null;
 }
 
+export function getDeliveryChannelForType(guildId, type) {
+  if (!guildId || !type) return getDeliveryChannel(guildId);
+  return cache[guildId]?.deliveryChannels?.[type] ?? getDeliveryChannel(guildId);
+}
+
+export function getDeliveryChannelsByType(guildId) {
+  if (!guildId) return {};
+  return { ...(cache[guildId]?.deliveryChannels ?? {}) };
+}
+
 export function setDelivery(guildId, delivery, channelId) {
   const patch = { delivery };
   if (channelId !== undefined) patch.deliveryChannel = channelId || null;
   update(guildId, patch);
+}
+
+export function setDeliveryChannelForType(guildId, type, channelId) {
+  if (!guildId || !type) return;
+  const deliveryChannels = { ...(cache[guildId]?.deliveryChannels ?? {}) };
+  if (channelId) deliveryChannels[type] = channelId;
+  else delete deliveryChannels[type];
+  update(guildId, { deliveryChannels });
 }
 
 // Channel ID where generations are logged for this server (null = none set).

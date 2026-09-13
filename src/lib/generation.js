@@ -48,7 +48,7 @@ export async function generateAccount(client, {
   fallbackChannel,
   preflight,
 }) {
-  await ensureDeliveryReady({ client, guildId, fallbackChannel, user });
+  await ensureDeliveryReady({ client, guildId, fallbackChannel, user, type });
   await verifyGenerationEligibility(type, preflight);
   const acc = await generate(type);
   const voice = await checkVoiceChat(acc.cookie); // null if the lookup fails

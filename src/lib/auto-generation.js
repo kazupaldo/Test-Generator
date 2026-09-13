@@ -140,7 +140,7 @@ export function getAutoGenerationStatus(guildId) {
   };
 }
 
-async function deliverGeneratedAccount(client, run, payload, user) {
+async function deliverGeneratedAccount(client, run, payload, user, type) {
   const fallbackChannel = ['server', 'both'].includes(getDelivery(run.guildId))
     ? await client.channels.fetch(run.channelId).catch(() => null)
     : null;
@@ -149,6 +149,7 @@ async function deliverGeneratedAccount(client, run, payload, user) {
     guildId: run.guildId,
     fallbackChannel,
     user,
+    type,
     payload,
     context: 'auto-generation',
   });
@@ -229,7 +230,7 @@ async function generateNext(client, run) {
       fallbackChannel: await client.channels.fetch(run.channelId).catch(() => null),
       preflight: { stock, limits },
     });
-    const delivery = await deliverGeneratedAccount(client, run, payload, user);
+    const delivery = await deliverGeneratedAccount(client, run, payload, user, type);
 
     if (delivery.mode === 'both' && (delivery.channelError || delivery.dmError)) {
       if (delivery.dmError) logDirectMessageError('auto-generation', user, delivery.dmError);
