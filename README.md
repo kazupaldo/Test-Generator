@@ -20,6 +20,8 @@ You can use prefix commands like `+generate alt` or native Discord slash command
 | `+history [page]` | Lists your generated accounts (Prev/Next buttons to page) |
 | `+history <username>` | DMs that account's full login (same embed as a generation) |
 | `+history export [type] [page] [format]` | DMs filtered history as `txt`, `csv`, or `json` |
+| `+secure <username>` | Opens a private password security action for a generated account |
+| `+secure type <type>` | DMs up to five recent accounts of one type with manual security actions |
 | `+followers <id>` | Checks how many followers can be added to a Roblox account |
 | `+stock` | Live-checks which account types are currently in stock |
 | `+prices` | Shows the price of each account type |
@@ -27,7 +29,7 @@ You can use prefix commands like `+generate alt` or native Discord slash command
 | `+status` | Shows API & Social Growth health and your balance |
 | `+settings` | Choose DMs, a channel, or both destinations (admins only) |
 | `+logs` | Set/clear the channel where generations are logged (admins only) |
-| `+autogen` | Open the admin-only 24-hour auto-generation panel |
+| `+autogen` | Open the admin-only continuous auto-generation panel |
 | `+help` | Shows the list of commands |
 
 **Account types** for `+generate`: `alt`, `+30 days old`, `+1 year old`, `5+ years old`, `dump`.
@@ -36,7 +38,7 @@ You can use prefix commands like `+generate alt` or native Discord slash command
 
 The primary commands are also registered as native Discord slash commands:
 `/generate`, `/panel`, `/balance`, `/followers`, `/stock`, `/prices`,
-`/limits`, `/status`, `/settings`, `/logs`, `/history`, `/help`, and `/autogen`.
+`/limits`, `/status`, `/settings`, `/logs`, `/history`, `/secure`, `/help`, and `/autogen`.
 They are registered for each server when the bot starts or joins it. Prefix
 commands remain available for compatibility.
 
@@ -50,9 +52,22 @@ fresh stock and daily-limit check before the paid API request.
 
 When an account is generated, the bot uses the account's own cookie to query the official Roblox voice settings API and shows whether **voice chat** is enabled/verified for it. If the lookup fails, the field is simply omitted.
 
+### 🔐 Change an account password
+
+Generated account messages include a **Change password** button. Click it, enter
+the current password and the new password twice, and the bot changes the
+password through Roblox's authenticated account API. The updated login is sent
+to your DMs; the new password is never written to the bot logs or posted in a
+server channel.
+
+If you no longer have the original account message, use `+secure <username>` or
+`/secure account:<username>` to open the same private action. To filter recent
+accounts by type, use `+secure type <type>` or `/secure type:<type>`. Each
+password change is still explicit and the current password is required.
+
 ### 🖱️ Dropdown menu
 
-Type `+panel` (or just `+generate` with no type) and the bot shows a **dropdown menu** to pick an account type. Picking one generates the account and sends it to your **DMs** — with a **🔄 Generate again** button. No need to remember the command syntax.
+Type `+panel` (or just `+generate` with no type) and the bot shows a **dropdown menu** to pick an account type. Picking one generates the account and sends it to your **DMs** — with **🔄 Generate again** and **🔐 Change password** buttons. No need to remember the command syntax.
 
 ### 📋 Logging (optional)
 
@@ -65,15 +80,15 @@ Log every generation (who generated it, the type, and the cost) to a channel —
 
 You can also set a default `LOG_CHANNEL_ID` in `.env`, but the `+logs` command takes priority.
 
-### ⏱️ 24-hour auto-generation
+### ⏱️ Continuous auto-generation
 
 Server admins can type `+autogen` to open the control panel. Select one or more
 account categories, then press **Enable** to generate one account immediately
-and continue every 5 seconds for up to 24 hours. Smart generation refreshes
+and continue every 5 seconds until an admin presses **Disable**. Smart generation refreshes
 BloxGen stock and daily limits before every attempt, skips an unavailable or
 limited type, and rotates through the types that are both stocked and eligible.
-If all selected stock is gone, generation pauses while the panel keeps checking
-for restock; it resumes automatically when an eligible type returns. The panel
+If all selected stock is gone, generation keeps checking without entering a
+paused state and continues automatically when an eligible type returns. The panel
 shows generated, skipped, and attempted counts plus the most recent checks.
 The `dump` category is included and its extra metadata (Robux, RAP, summary,
 and verification details when provided) is shown in the result.
@@ -178,11 +193,15 @@ A server admin (someone with **Manage Server** permission) can change this:
 - `+settings dm` → accounts sent privately by DM (default, safest)
 - `+settings server #channel` → accounts posted in the selected channel
 - `+settings both #channel` → accounts sent to the initiating user's DM **and** posted in the selected channel
+- `+settings type <account type> #channel` → route one account type to its own channel
 - `+settings` → shows the current setting
 
 The slash equivalent is `/settings mode:both channel:#channel`. In `both`
 mode, auto-generation sends every account to the configured channel and to
 the admin who enabled the run.
+Use `/settings type:<account type> type_channel:#channel` to route a specific
+account type to its own channel. Per-type channels override the default channel
+for that type; DM delivery is unchanged.
 
 ⚠️ **Warning:** `server` and `both` modes mean everyone who can read the
 selected channel will see the account password and cookie. Only use them in a
