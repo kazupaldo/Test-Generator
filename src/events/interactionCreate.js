@@ -1,6 +1,15 @@
-import { MessageFlags, PermissionFlagsBits } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ModalBuilder,
+  MessageFlags,
+  PermissionFlagsBits,
+  TextInputBuilder,
+  TextInputStyle,
+} from 'discord.js';
 import { ACCOUNT_TYPES, getStock } from '../bloxgen.js';
+import { findAccountByUsername } from '../bloxgen-dashboard.js';
 import { generateAccount } from '../lib/generation.js';
+import { changePassword } from '../roblox.js';
 import {
   disableAutoGeneration,
   enableAutoGeneration,
@@ -8,11 +17,16 @@ import {
   setAutoGenerationRefresh,
   setAutoGenerationTypes,
 } from '../lib/auto-generation.js';
-import { buildAutoGenerationPanel } from '../lib/ui.js';
+import {
+  accountActionsRow,
+  buildAccountEmbed,
+  buildAccountFile,
+  buildAutoGenerationPanel,
+} from '../lib/ui.js';
 import { buildHistoryPage } from '../commands/history.js';
 import { commands } from '../commands/index.js';
 import { buildStockReply } from '../commands/stock.js';
-import { describeDirectMessageError } from '../lib/delivery.js';
+import { describeDirectMessageError, sendDirectMessage } from '../lib/delivery.js';
 import { deliverAccount } from '../lib/account-delivery.js';
 
 // Generate from a button/menu interaction. The account is sent to DMs (or the
@@ -38,6 +52,7 @@ async function handleGenerateInteraction(interaction, type) {
         guildId: interaction.guildId,
         fallbackChannel: interaction.channel,
         user: interaction.user,
+        type,
         payload,
         context: 'interactive account picker',
       });
@@ -68,6 +83,100 @@ async function handleGenerateInteraction(interaction, type) {
   } catch (err) {
     console.error('Interaction generate failed:', err);
     await interaction.editReply(`❌ ${err.message || 'Something went wrong.'}`);
+  }
+}
+
+function parsePasswordChangeId(customId, prefix) {
+  const value = customId.slice(prefix.length);
+  const separator = value.indexOf(':');
+  if (separator < 1) return null;
+  const ownerId = value.slice(0, separator);
+  const encodedUsername = value.slice(separator + 1);
+  if (!encodedUsername) return null;
+  try {
+    return { ownerId, username: decodeURIComponent(encodedUsername) };
+  } catch {
+    return null;
+  }
+}
+
+function buildPasswordChangeModal(ownerId, username) {
+  return new ModalBuilder()
+    .setCustomId(`password-change-modal:${ownerId}:${encodeURIComponent(username)}`)
+    .setTitle('Change Roblox password')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('current-password')
+          .setLabel('Current password')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('new-password')
+          .setLabel('New password')
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(8)
+          .setMaxLength(72)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('confirm-password')
+          .setLabel('Confirm new password')
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(8)
+          .setMaxLength(72)
+          .setRequired(true),
+      ),
+    );
+}
+
+async function handlePasswordChange(interaction, parsed) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const currentPassword = interaction.fields.getTextInputValue('current-password');
+  const newPassword = interaction.fields.getTextInputValue('new-password');
+  const confirmation = interaction.fields.getTextInputValue('confirm-password');
+  if (newPassword !== confirmation) {
+    await interaction.editReply('❌ The new password and confirmation do not match.');
+    return;
+  }
+
+  try {
+    const account = await findAccountByUsername(parsed.username);
+    if (!account) {
+      await interaction.editReply(`❌ No generated account found for \`${parsed.username}\`.`);
+      return;
+    }
+    if (!account.cookie) {
+      await interaction.editReply('❌ This account does not have a Roblox session cookie, so its password cannot be changed.');
+      return;
+    }
+
+    await changePassword({
+      cookie: account.cookie,
+      currentPassword,
+      newPassword,
+    });
+
+    const updatedAccount = { ...account, password: newPassword };
+    const file = buildAccountFile(updatedAccount);
+    try {
+      await sendDirectMessage(interaction.user, {
+        embeds: [buildAccountEmbed(updatedAccount)],
+        components: [accountActionsRow(updatedAccount.type, updatedAccount.username, interaction.user.id)],
+        ...(file ? { files: [file] } : {}),
+      });
+      await interaction.editReply('✅ Password changed. I sent the updated account details to your DMs.');
+    } catch (err) {
+      await interaction.editReply(
+        `✅ Password changed, but I could not send the updated details by DM (${describeDirectMessageError(err)}).`,
+      );
+    }
+  } catch (err) {
+    await interaction.editReply(`❌ ${err.message || 'Could not change the password.'}`);
   }
 }
 
@@ -106,7 +215,20 @@ async function handleChatInputCommand(interaction, client) {
     case 'followers':
       args = [options.getString('account')];
       break;
+    case 'secure':
+      if (options.getString('type')) {
+        args = ['type', options.getString('type')];
+      } else if (options.getString('account')) {
+        args = [options.getString('account')];
+      }
+      break;
     case 'settings': {
+      const type = options.getString('type');
+      const typeChannel = options.getChannel('type_channel');
+      if (type) {
+        args = ['type-route', type, typeChannel?.id || ''];
+        break;
+      }
       const mode = options.getString('mode');
       if (mode) args = [mode];
       const channel = options.getChannel('channel');
@@ -162,6 +284,24 @@ export async function execute(interaction) {
   try {
     if (interaction.isChatInputCommand()) {
       await handleChatInputCommand(interaction, interaction.client);
+    } else if (interaction.isButton() && interaction.customId.startsWith('password-change:')) {
+      const parsed = parsePasswordChangeId(interaction.customId, 'password-change:');
+      if (!parsed) {
+        await interaction.reply({ content: '❌ Invalid password-change button.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (interaction.user.id !== parsed.ownerId) {
+        await interaction.reply({ content: '❌ Only the account recipient can change this password.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+      await interaction.showModal(buildPasswordChangeModal(parsed.ownerId, parsed.username));
+    } else if (interaction.isModalSubmit() && interaction.customId.startsWith('password-change-modal:')) {
+      const parsed = parsePasswordChangeId(interaction.customId, 'password-change-modal:');
+      if (!parsed || interaction.user.id !== parsed.ownerId) {
+        await interaction.reply({ content: '❌ You are not authorized to change this password.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+      await handlePasswordChange(interaction, parsed);
     } else if (interaction.isStringSelectMenu() && interaction.customId === 'autogen-types') {
       if (!interaction.guild || !interaction.member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
         await interaction.reply({ content: '❌ You need the **Manage Server** permission.', flags: MessageFlags.Ephemeral });
