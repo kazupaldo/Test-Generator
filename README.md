@@ -1,15 +1,4 @@
-# 🤖 BloxGen Discord Bot
-
-A simple Discord bot that lets you generate Roblox accounts through the [BloxGen API](https://docs.bloxgen.net), right from your Discord server.
-
-You can use prefix commands like `+generate alt` or native Discord slash commands like `/generate`.
-
-> **Companion tools** (Chrome extensions for the Bloxgen dashboard):
-> [Bloxgen Voice Checker](https://github.com/joe-jns/bloxgen-voice-checker) — check if voice chat is enabled (+ age group) ·
-> [Bloxgen Account Claimer](https://github.com/joe-jns/bloxgen-account-claimer) — claim accounts by changing their password.
-
----
-
+## Kazu Generator using BLOXGEN API KEY
 ## ✨ What it can do
 
 | Command | What it does |
