@@ -303,7 +303,9 @@ async function handleChatInputCommand(interaction, client) {
     }
   }
 
-  await interaction.deferReply();
+  await interaction.deferReply({
+    flags: interaction.commandName === 'key' ? MessageFlags.Ephemeral : undefined,
+  });
   try {
     const reply = await command.execute({ message, args, client, interaction });
     if (reply) {
