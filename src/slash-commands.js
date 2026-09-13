@@ -64,6 +64,19 @@ function buildCommand(name) {
           .setDescription('Channel for channel or DM + channel delivery')
           .setRequired(false),
       );
+      command.addStringOption((option) =>
+        option
+          .setName('type')
+          .setDescription('Set a separate channel for this account type')
+          .setRequired(false)
+          .addChoices(...ACCOUNT_TYPES.map((type) => ({ name: type, value: type }))),
+      );
+      command.addChannelOption((option) =>
+        option
+          .setName('type_channel')
+          .setDescription('Channel for the selected account type')
+          .setRequired(false),
+      );
       break;
     case 'logs':
       command
