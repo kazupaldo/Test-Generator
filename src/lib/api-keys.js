@@ -55,26 +55,75 @@ export function hasPersonalApiKey(userId) {
   return Boolean(userId && cache[userId]);
 }
 
-export function getUserApiKey(userId) {
-  if (userId && cache[userId]) {
+function recordsFor(userId) {
+  const stored = cache[userId];
+  if (!stored) return { active: null, keys: {} };
+  if (stored.keys) return stored;
+  // Migrate the original one-key format lazily.
+  return { active: 'default', keys: { default: stored } };
+}
+
+export function listUserApiKeys(userId) {
+  const record = recordsFor(userId);
+  return {
+    active: record.active,
+    names: Object.keys(record.keys),
+  };
+}
+
+export function setActiveUserApiKey(userId, name) {
+  const record = recordsFor(userId);
+  if (!record.keys[name]) return false;
+  record.active = name;
+  cache[userId] = record;
+  save();
+  return true;
+}
+
+export function getUserApiKey(userId, name = null, { fallback = true } = {}) {
+  const record = recordsFor(userId);
+  const keyName = name || record.active || Object.keys(record.keys)[0];
+  if (userId && record.keys[keyName]) {
     try {
-      return decrypt(cache[userId]);
+      return decrypt(record.keys[keyName]);
     } catch (error) {
       console.error(`Could not decrypt the personal API key for user ${userId}:`, error.message);
     }
   }
-  return BLOXGEN_API_KEY;
+  return fallback ? BLOXGEN_API_KEY : null;
 }
 
-export function setUserApiKey(userId, apiKey) {
+export function requireUserApiKey(userId) {
+  const key = hasPersonalApiKey(userId) ? getUserApiKey(userId, null, { fallback: false }) : null;
+  if (!key) {
+    throw new Error('Add your personal BloxGen API key with `+key` before generating. The bot owner’s key is never used for auto-generation.');
+  }
+  return key;
+}
+
+export function setUserApiKey(userId, apiKey, name = 'default') {
   if (!userId) throw new Error('A Discord user is required.');
-  cache[userId] = encrypt(apiKey);
+  const record = recordsFor(userId);
+  const safeName = String(name || 'default').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 32) || 'default';
+  cache[userId] = {
+    active: record.active || safeName,
+    keys: { ...record.keys, [safeName]: encrypt(apiKey) },
+  };
   save();
+  return safeName;
 }
 
-export function removeUserApiKey(userId) {
+export function removeUserApiKey(userId, name = null) {
   if (!userId || !cache[userId]) return false;
-  delete cache[userId];
+  const record = recordsFor(userId);
+  const keyName = name || record.active || Object.keys(record.keys)[0];
+  delete record.keys[keyName];
+  if (!Object.keys(record.keys).length) {
+    delete cache[userId];
+  } else {
+    record.active = record.active === keyName ? Object.keys(record.keys)[0] : record.active;
+    cache[userId] = record;
+  }
   save();
   return true;
 }
