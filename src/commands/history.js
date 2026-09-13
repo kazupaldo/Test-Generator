@@ -1,7 +1,7 @@
 import { EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { getHistory, getAllHistory, findAccountByUsername } from '../bloxgen-dashboard.js';
 import { checkVoiceChat } from '../roblox.js';
-import { buildAccountEmbed, buildAccountFile } from '../lib/ui.js';
+import { accountActionsRow, buildAccountEmbed, buildAccountFile } from '../lib/ui.js';
 import { COLORS, PREFIX } from '../config.js';
 import {
   describeDirectMessageError,
@@ -84,6 +84,7 @@ async function sendAccountDM(user, username) {
     const file = buildAccountFile(acc);
     await sendDirectMessage(user, {
       embeds: [buildAccountEmbed(acc, voice)],
+      components: [accountActionsRow(acc.type, acc.username, user.id)],
       ...(file ? { files: [file] } : {}),
     });
     return '📩 Account sent to your DMs.';

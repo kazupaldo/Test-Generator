@@ -31,6 +31,7 @@ export default {
         guildId: message.guildId,
         fallbackChannel: message.channel,
         user: message.author,
+        type,
         payload,
         context: 'generate command',
       });

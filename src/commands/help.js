@@ -21,6 +21,7 @@ export default {
             `> **\`${p}history [page]\`** — list your generated accounts`,
             `> **\`${p}history <username>\`** — DM that account's login`,
             `> **\`${p}history export [type] [page] [format]\`** — export filtered history (txt/csv/json)`,
+            '> Generated account messages include a private **🔐 Change password** button.',
           ].join('\n'),
         },
         {
@@ -40,8 +41,11 @@ export default {
           name: '⚙️ Config',
           value: [
             `> **\`${p}settings [dm|server|both] #channel\`** — DM, channel, or both *(admin)*`,
+            `> **\`${p}settings type <account type> #channel\`** — route one account type to its own channel *(admin)*`,
             `> **\`${p}logs [here|#channel|off]\`** — log generations *(admin)*`,
-            `> **\`${p}autogen\`** — enable or disable 24-hour auto-generation *(admin)*`,
+            `> **\`${p}autogen\`** — enable or disable continuous auto-generation *(admin)*`,
+            `> **\`${p}secure <username>\`** — open a private password action`,
+            `> **\`${p}secure type <type>\`** — DM recent accounts of one type`,
           ].join('\n'),
         },
         {
