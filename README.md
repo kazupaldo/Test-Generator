@@ -1,4 +1,15 @@
-## Kazu Generator using BLOXGEN API KEY
+# 🤖 BloxGen Discord Bot
+
+A simple Discord bot that lets you generate Roblox accounts through the [BloxGen API](https://docs.bloxgen.net), right from your Discord server.
+
+You can use prefix commands like `+generate alt` or native Discord slash commands like `/generate`.
+
+> **Companion tools** (Chrome extensions for the Bloxgen dashboard):
+> [Bloxgen Voice Checker](https://github.com/joe-jns/bloxgen-voice-checker) — check if voice chat is enabled (+ age group) ·
+> [Bloxgen Account Claimer](https://github.com/joe-jns/bloxgen-account-claimer) — claim accounts by changing their password.
+
+---
+
 ## ✨ What it can do
 
 | Command | What it does |
@@ -17,11 +28,17 @@
 | `+limits` | Shows your daily generation limits |
 | `+status` | Shows API & Social Growth health and your balance |
 | `+settings` | Choose DMs, a channel, or both destinations (admins only) |
+| `+settings channels` | Show every type-to-channel mapping |
+| `+settings create-channels` | Create and route the standard generated-account channels |
+| `+settings clear-type <type>` | Remove one dedicated type channel |
 | `+logs` | Set/clear the channel where generations are logged (admins only) |
 | `+autogen` | Open the admin-only continuous auto-generation panel |
+| `+autogen interval <seconds>` | Set the auto-generation interval while disabled |
+| `+autogen priority <type,type,...>` | Set the rotation priority while disabled |
+| `+key` | Add, inspect, switch, or remove personal encrypted API keys |
 | `+help` | Shows the list of commands |
 
-**Account types** for `+generate`: `alt`, `+30 days old`, `+1 year old`, `5+ years old`, `dump`.
+**Account types** for `+generate`: `alt`, `+30 days old`, `+1 year old`, `5+ years old`, `dump`, `18+ age verified`.
 
 ### Slash commands
 
@@ -35,7 +52,20 @@ commands remain available for compatibility.
 also includes a **Refresh live stock** button. Every generation performs a
 fresh stock and daily-limit check before the paid API request.
 
-> 💡 By default, generated accounts are sent to you **privately** so nobody else sees the passwords. An admin can use `+settings both #channel` or `/settings mode:both channel:#channel` to deliver every account to both destinations.
+> 💡 By default, generated accounts are sent to you **privately**. Channel messages keep the password and cookie hidden; **Show login** sends them to the account recipient's DMs. An admin can use `+settings both #channel` or `/settings mode:both channel:#channel` to deliver every account to both destinations.
+
+### 🔐 Personal API keys and credential safety
+
+The bot does not need the host's BloxGen API key. Each person who generates an
+account should open `+key` (or `/key`) and add their own key privately. Keys are
+encrypted at rest with `SESSION_SECRET`, never printed in logs, and multiple named
+keys can be saved. Use `+key use <name>` to switch the active key.
+
+Every delivery has a durable duplicate ledger and retry queue. A temporary
+Discord failure does not trigger another paid generation, and queued account
+details are encrypted when `SESSION_SECRET` is configured. Set
+`CREDENTIAL_DELETE_AFTER_MS` to automatically remove credential messages after a
+chosen number of milliseconds.
 
 ### 🎙️ Voice chat status
 
@@ -73,12 +103,14 @@ You can also set a default `LOG_CHANNEL_ID` in `.env`, but the `+logs` command t
 
 Server admins can type `+autogen` to open the control panel. Select one or more
 account categories, then press **Enable** to generate one account immediately
-and continue every 5 seconds until an admin presses **Disable**. Smart generation refreshes
+and continue at the configured interval until an admin presses **Disable**. Smart generation refreshes
 BloxGen stock and daily limits before every attempt, skips an unavailable or
 limited type, and rotates through the types that are both stocked and eligible.
 If all selected stock is gone, generation keeps checking without entering a
 paused state and continues automatically when an eligible type returns. The panel
-shows generated, skipped, and attempted counts plus the most recent checks.
+shows per-type status, per-type counters, queue depth, daily generated/success/
+failed totals, and the most recent checks. It also alerts the control channel when
+all selected types are unavailable or limited.
 The `dump` category is included and its extra metadata (Robux, RAP, summary,
 and verification details when provided) is shown in the result.
 
@@ -89,8 +121,8 @@ cooldown, the bot waits for it instead of repeatedly submitting requests.
 
 Press **Disable** at any time to stop it immediately. Auto-generated accounts
 follow the server's current DM, channel, or DM + channel delivery setting.
-Channel delivery can expose account credentials, so only use it in a private
-channel.
+Channel delivery should still be restricted to a private channel, even though
+credentials are now masked by default.
 
 ---
 
@@ -125,20 +157,14 @@ The bot needs a free program called **Node.js** to run.
 3. In the **Bot Permissions** box that appears, check: **Send Messages**, **Embed Links**, **Read Message History**.
 4. Copy the link at the bottom, paste it in your browser, and pick your server to invite the bot.
 
-### Step 5 — Get your BloxGen API key
-
-1. Log in to your **[BloxGen Dashboard](https://bloxgen.net/dashboard/overview)**.
-2. Copy your **API key** (it looks like `BLOX-xxxxxxxxxxxxxxxx`).
-3. ⚠️ Important: in the dashboard, **accept the rules once** — otherwise `+generate` won't work.
-
-### Step 6 — Add your tokens to the bot
+### Step 5 — Add the bot token and encryption secret
 
 1. In the bot folder, find the file named **`.env.example`**.
 2. Make a copy of it and rename the copy to **`.env`** (just `.env`, nothing before the dot).
 3. Open `.env` with Notepad and fill in:
    ```
    DISCORD_TOKEN=paste-the-token-for-your-new-test-bot-here
-   BLOXGEN_API_KEY=BLOX-your-key-here
+    SESSION_SECRET=use-a-long-random-secret-here
    ```
    If this is a different test bot, create or reset that bot's token and
    invite that same application to the test server. Do not reuse a token from
@@ -151,9 +177,10 @@ The bot needs a free program called **Node.js** to run.
    BLOXGEN_SESSION_COOKIE=paste-the-accessToken-value
    ```
    This cookie lasts about 7 days, so you'll re-paste it now and then.
-5. Save the file.
+4. Save the file. `BLOXGEN_API_KEY` is optional; users add their own keys
+   through `+key` or `/key`.
 
-### Step 7 — Start the bot
+### Step 6 — Start the bot
 
 1. Open the bot folder.
 2. Click the address bar at the top of the window, type `cmd`, and press **Enter** (this opens a black command window in that folder).
@@ -183,6 +210,9 @@ A server admin (someone with **Manage Server** permission) can change this:
 - `+settings server #channel` → accounts posted in the selected channel
 - `+settings both #channel` → accounts sent to the initiating user's DM **and** posted in the selected channel
 - `+settings type <account type> #channel` → route one account type to its own channel
+- `+settings channels` → show all current mappings
+- `+settings create-channels` → create `#generated-alt`, `#generated-dump`, `#generated-1-year`, and `#generated-5-years`
+- `+settings clear-type <account type>` → return one type to the default channel
 - `+settings` → shows the current setting
 
 The slash equivalent is `/settings mode:both channel:#channel`. In `both`
@@ -192,9 +222,9 @@ Use `/settings type:<account type> type_channel:#channel` to route a specific
 account type to its own channel. Per-type channels override the default channel
 for that type; DM delivery is unchanged.
 
-⚠️ **Warning:** `server` and `both` modes mean everyone who can read the
-selected channel will see the account password and cookie. Only use them in a
-private/admin-only channel.
+⚠️ **Warning:** `server` and `both` modes expose the username and account metadata
+to everyone who can read the selected channel. Passwords and cookies remain
+masked there, but use a private/admin-only channel for account operations.
 
 ---
 
@@ -218,7 +248,7 @@ export uses the dashboard session cookie, so keep the resulting file private.
 | Bot doesn't respond to commands | Make sure **MESSAGE CONTENT INTENT** is ON (Step 3.5) and the bot is online. |
 | "Could not DM you" | Allow DMs from server members (Server settings → Privacy), or use `+settings server`. The bot checks the destination before it requests a paid account. |
 | Account generated but not posted | Give the bot **Send Messages**, **Embed Links**, and **Attach Files** in the selected channel. Long cookies are sent as a private account file instead of an oversized embed field. |
-| "API key is required" / "Invalid API key" | Double-check `BLOXGEN_API_KEY` in your `.env`. |
+| "API key is required" / "Invalid API key" | Open `+key` or `/key`, add your personal BloxGen key, and verify it in the key panel. |
 | "You must accept the rules before generating" | Accept the rules once in the BloxGen dashboard. |
 | "Insufficient balance" | Top up your BloxGen balance. |
 | `'npm' is not recognized` | Node.js isn't installed — redo Step 1, then reopen the command window. |
@@ -230,7 +260,7 @@ export uses the dashboard session cookie, so keep the resulting file private.
 - The BloxGen API key belongs to **you (the bot owner)** — everyone using the bot spends from **your** balance.
 - Never share your `.env` file, your Discord token, or your API key.
 - Keep the bot in a server/channel you trust.
-- Store `DISCORD_TOKEN`, `BLOXGEN_API_KEY`, and `BLOXGEN_SESSION_COOKIE` only in
+- Store `DISCORD_TOKEN`, `SESSION_SECRET`, optional `BLOXGEN_API_KEY`, and `BLOXGEN_SESSION_COOKIE` only in
   `.env` or your host's secret manager.
 
 ---
